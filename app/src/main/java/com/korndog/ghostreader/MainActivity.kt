@@ -26,6 +26,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -209,9 +212,20 @@ private fun GhostApp() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
      books.forEach { book ->
       Card(onClick = { openBook(book) }, colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
-       Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Text("📖  ${book.title}", color = Color.White, fontWeight = FontWeight.Bold)
-        Text("Tap to read", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+       val metadata = remember(book.file.absolutePath) { readBookMetadata(book.file) }
+       Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (metadata.cover != null) {
+         Image(bitmap = metadata.cover.asImageBitmap(), contentDescription = "Cover of ${metadata.title}", contentScale = ContentScale.Crop, modifier = Modifier.width(76.dp).height(108.dp))
+        } else {
+         Box(Modifier.width(76.dp).height(108.dp), contentAlignment = Alignment.Center) { Text("📖", style = MaterialTheme.typography.headlineLarge) }
+        }
+        Column(Modifier.weight(1f)) {
+         Text(metadata.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+         Spacer(Modifier.height(4.dp))
+         Text(metadata.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium)
+         Spacer(Modifier.height(10.dp))
+         Text(if (prefs.contains(book.file.name)) "Continue reading ›" else "Start reading ›", color = violet, style = MaterialTheme.typography.labelMedium)
+        }
        }
       }
      }
