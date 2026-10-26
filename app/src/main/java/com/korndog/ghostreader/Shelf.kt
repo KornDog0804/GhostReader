@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -51,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -94,11 +96,59 @@ internal fun seriesOf(title: String): String {
     return ""
 }
 
+/** What the home screen offers to resume. */
+internal data class HomeContinue(
+    val title: String,
+    val progress: Float,
+    val isAudio: Boolean,
+    val cover: Bitmap?,
+    val book: Book?,
+    val audio: File?
+)
+
+/** A tappable settings/download row: glyph, title, one line of help. */
+@Composable
+internal fun ActionCard(glyph: String, title: String, subtitle: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF17111F))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF2A1D42)),
+            contentAlignment = Alignment.Center
+        ) { Text(glyph, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = if (enabled) Color.White else Color(0xFF7C7090), fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Color(0xFF9B8DB0), fontSize = 12.sp, lineHeight = 15.sp)
+        }
+        Text("›", color = Color(0xFF9B8DB0), fontSize = 20.sp)
+    }
+}
+
+@Composable
+internal fun SectionLabel(text: String) {
+    Text(text, color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, modifier = Modifier.padding(bottom = 8.dp))
+}
+
+/** Soft purple wash behind the listening screen. */
+@Composable
+internal fun AudioBookPlayerFrame(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF211338), Color(0xFF0B0911), Color(0xFF0B0911))))) {
+        content()
+    }
+}
+
 // ---------------------------------------------------------------- home
 
 /** The front door: the GhostReader art with My Library and Add Books. */
 @Composable
-internal fun HomeSplash(onLibrary: () -> Unit, onAddBooks: () -> Unit) {
+internal fun HomeSplash(onLibrary: () -> Unit, onAddBooks: () -> Unit, resume: HomeContinue? = null, onResume: (HomeContinue) -> Unit = {}) {
     Column(
         Modifier
             .fillMaxSize()
@@ -116,7 +166,40 @@ internal fun HomeSplash(onLibrary: () -> Unit, onAddBooks: () -> Unit) {
                 modifier = Modifier.fillMaxSize()
             )
         }
-        Spacer(Modifier.height(16.dp))
+        if (resume != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF2A1D42), Color(0xFF14101C))))
+                    .clickable { onResume(resume) }
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (resume.cover != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = resume.cover.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = if (resume.isAudio) ContentScale.Fit else ContentScale.Crop,
+                        modifier = Modifier.width(46.dp).height(if (resume.isAudio) 46.dp else 66.dp).clip(RoundedCornerShape(5.dp))
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(if (resume.isAudio) "CONTINUE LISTENING" else "CONTINUE READING", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text(resume.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(6.dp))
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFF3A2D52))) {
+                        Box(Modifier.fillMaxWidth(resume.progress.coerceIn(0.02f, 1f)).fillMaxHeight().background(accent))
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(percentText(resume.progress), color = accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+        } else {
+            Spacer(Modifier.height(16.dp))
+        }
         HomeButton("My Library", filled = true, onClick = onLibrary)
         Spacer(Modifier.height(12.dp))
         HomeButton("Add Books", filled = false, onClick = onAddBooks)

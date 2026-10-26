@@ -144,7 +144,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    Modifier.fillMaxWidth(0.79f).aspectRatio(1f).clip(RoundedCornerShape(22.dp)).background(Color(0xFF251933)),
    contentAlignment = Alignment.Center
   ) {
-   if (coverArt != null) Image(coverArt.asImageBitmap(), contentDescription = "Audiobook cover", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+   if (coverArt != null) Image(coverArt.asImageBitmap(), contentDescription = "Audiobook cover", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
    else Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Text("GHOST", color = purple, fontSize = 34.sp, fontWeight = FontWeight.Black)
     Text("READER", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black)

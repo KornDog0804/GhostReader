@@ -29,6 +29,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
@@ -243,9 +245,39 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selectedAudio != null) {
     val file = selectedAudio!!
-    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).putLong("ats_" + file.name, System.currentTimeMillis()).apply() }, onClose = { selectedAudio = null })
+    AudioBookPlayerFrame { AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).putLong("ats_" + file.name, System.currentTimeMillis()).apply() }, onClose = { selectedAudio = null }) }
    } else if (selected == null && showHome) {
-    HomeSplash(onLibrary = { showHome = false; tab = 0 }, onAddBooks = { showHome = false; tab = 1 })
+    val last by produceState<HomeContinue?>(null, books, audioFiles, showHome, libRev) {
+     value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+      val bookPick = books.filter { prefs.contains(it.progressKey) }.maxByOrNull { prefs.getLong(it.progressKey + "_ts", 0L) }
+      val audioPick = audioFiles.filter { prefs.getInt("audio_" + it.name, 0) > 5_000 }.maxByOrNull { prefs.getLong("ats_" + it.name, 0L) }
+      val bookTs = bookPick?.let { prefs.getLong(it.progressKey + "_ts", 0L) } ?: 0L
+      val audioTs = audioPick?.let { prefs.getLong("ats_" + it.name, 0L) } ?: 0L
+      when {
+       bookPick == null && audioPick == null -> null
+       audioPick != null && audioTs >= bookTs -> {
+        val info = runCatching { readShelfAudioMetadata(audioPick) }.getOrNull()
+        val fraction = if ((info?.durationMs ?: 0L) > 0) (prefs.getInt("audio_" + audioPick.name, 0).toFloat() / info!!.durationMs).coerceIn(0f, 1f) else 0f
+        val title = prefs.getString("ov_title_" + audioPick.name, null)?.takeIf { it.isNotBlank() } ?: info?.title ?: audioPick.nameWithoutExtension
+        val picked = CoverStore.overrideFile(ctx, audioPick.name).takeIf { it.exists() }?.let { runCatching { decodeBitmap(it.readBytes(), 400) }.getOrNull() }
+        HomeContinue(title, fraction, true, picked ?: info?.cover, null, audioPick)
+       }
+       else -> {
+        val book = bookPick!!
+        val meta = runCatching { readVolumeMetadata(book) }.getOrNull()
+        val title = prefs.getString("ov_title_" + book.progressKey, null)?.takeIf { it.isNotBlank() } ?: book.title
+        val picked = CoverStore.overrideFile(ctx, book.progressKey).takeIf { it.exists() }?.let { runCatching { decodeBitmap(it.readBytes(), 400) }.getOrNull() }
+        HomeContinue(title, prefs.getFloat(book.progressKey + "_pct", 0f), false, picked ?: meta?.cover, book, null)
+       }
+      }
+     }
+    }
+    HomeSplash(
+     onLibrary = { showHome = false; tab = 0 },
+     onAddBooks = { showHome = false; tab = 1 },
+     resume = last,
+     onResume = { item -> item.book?.let { openBook(it) } ?: item.audio?.let { selectedAudio = it } }
+    )
     BackHandler(enabled = false) {}
    } else if (selected == null) {
     BackHandler { showHome = true }
@@ -260,11 +292,11 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Text("Add books and audiobooks you own.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
        Spacer(Modifier.height(16.dp))
-       Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import EPUB") }
-       Spacer(Modifier.height(8.dp))
-       OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import audiobook") }
-       Spacer(Modifier.height(8.dp))
-       OutlinedButton(onClick = { showMagnet = !showMagnet }, modifier = Modifier.fillMaxWidth()) { Text("Download from magnet") }
+       ActionCard("▤", "Import a book", "Pick an EPUB from your phone or Google Drive") { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }
+       Spacer(Modifier.height(10.dp))
+       ActionCard("♪", "Import an audiobook", "M4B, MP3 or M4A you own") { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }
+       Spacer(Modifier.height(10.dp))
+       ActionCard("⤓", "Download from a magnet link", if (showMagnet) "Tap to hide" else "Paste a link to a file you're authorized to download") { showMagnet = !showMagnet }
        if (showMagnet) {
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -283,15 +315,34 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
       }
       else -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Settings", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-       Spacer(Modifier.height(16.dp))
-       Text("SHARED LIBRARY  •  GOOGLE DRIVE", color = violet, fontWeight = FontWeight.Bold)
-       Spacer(Modifier.height(8.dp))
-       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(enabled = !backupBusy, onClick = { backupExport.launch("GhostReader-Library.zip") }) { Text("Save library") }
-        OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Load library") }
+       Spacer(Modifier.height(18.dp))
+       SectionLabel("READING")
+       var themePick by remember { mutableIntStateOf(prefs.getInt("r_theme", 0)) }
+       var sizePick by remember { mutableFloatStateOf(prefs.getFloat("fontSize", 18f).coerceIn(14f, 32f)) }
+       Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFF17111F)).padding(16.dp)) {
+        Text("Page theme", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+         listOf("Night", "AMOLED", "Sepia", "Paper").forEachIndexed { index, name ->
+          FilterChip(selected = themePick == index, onClick = { themePick = index; prefs.edit().putInt("r_theme", index).apply() }, label = { Text(name) })
+         }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Text size  ·  ${sizePick.toInt()}", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Slider(value = sizePick, onValueChange = { sizePick = it }, onValueChangeFinished = { prefs.edit().putFloat("fontSize", sizePick).apply() }, valueRange = 14f..32f)
+        Text("The quick brown fox jumps over the lazy dog.", color = Color(0xFFD9CCEB), fontSize = sizePick.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, lineHeight = (sizePick * 1.4f).sp)
        }
-       Text("Choose Google Drive in the Android file picker to save or load a portable ZIP of ebooks, audiobooks and progress. Manual transfer for now; automatic sync is not enabled.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-       if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
+       Spacer(Modifier.height(22.dp))
+       SectionLabel("SHARED LIBRARY  ·  GOOGLE DRIVE")
+       ActionCard("↑", "Save library", "Export ebooks, audiobooks and progress to a ZIP", enabled = !backupBusy) { backupExport.launch("GhostReader-Library.zip") }
+       Spacer(Modifier.height(10.dp))
+       ActionCard("↓", "Load library", "Restore from a saved ZIP, for a new phone or tablet", enabled = !backupBusy) { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
+       Text("Choose Google Drive in the file picker to move your library between devices. Manual for now; automatic sync is not enabled.", color = Color(0xFF9B8DB0), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+       if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+       Spacer(Modifier.height(26.dp))
+       Text("GHOSTREADER", color = violet, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
+       Text("Your library. Your rules.", color = Color(0xFF9B8DB0), style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterHorizontally))
+       Spacer(Modifier.height(16.dp))
       }
      }
     }
