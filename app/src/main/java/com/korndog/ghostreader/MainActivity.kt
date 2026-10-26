@@ -55,15 +55,26 @@ private data class Book(val file: File, val title: String)
 private data class Chapter(val title: String, val text: String)
 
 class MainActivity : ComponentActivity() {
+ private val incomingMagnet = mutableStateOf<String?>(null)
+ override fun onNewIntent(intent: Intent) {
+  super.onNewIntent(intent)
+  setIntent(intent)
+  acceptMagnet(intent)
+ }
+ private fun acceptMagnet(intent: Intent?) {
+  val uri = intent?.data
+  if (intent?.action == Intent.ACTION_VIEW && uri?.scheme.equals("magnet", true) && uri.toString().startsWith("magnet:?xt=urn:btih:", true)) incomingMagnet.value = uri.toString()
+ }
  override fun onCreate(savedInstanceState: Bundle?) {
   super.onCreate(savedInstanceState)
-  setContent { MaterialTheme(colorScheme = darkColorScheme(primary = violet, background = dark, surface = Color(0xFF191321))) { GhostApp() } }
+  acceptMagnet(intent)
+  setContent { MaterialTheme(colorScheme = darkColorScheme(primary = violet, background = dark, surface = Color(0xFF191321))) { GhostApp(incomingMagnet.value, onMagnetConsumed = { incomingMagnet.value = null }) } }
  }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GhostApp() {
+private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  val ctx = LocalContext.current
  val shelf = remember { File(ctx.filesDir, "books").apply { mkdirs() } }
  val prefs = remember { ctx.getSharedPreferences("reading", 0) }
@@ -81,6 +92,16 @@ private fun GhostApp() {
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
  var magnetMode by remember { mutableStateOf("epub") }
+ LaunchedEffect(incomingMagnet) {
+  if (!incomingMagnet.isNullOrBlank()) {
+   magnet = incomingMagnet
+   magnetMode = "audio"
+   showMagnet = true
+   selectedAudio = null
+   selected = null
+   onMagnetConsumed()
+  }
+ }
  var audioChoices by remember { mutableStateOf<List<BookTorrentEngine.AudioOption>>(emptyList()) }
  var audioSelection by remember { mutableStateOf<java.util.concurrent.CompletableFuture<Int>?>(null) }
  var showTools by remember { mutableStateOf(false) }
