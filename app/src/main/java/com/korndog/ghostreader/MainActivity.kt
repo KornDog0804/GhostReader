@@ -135,7 +135,7 @@ private fun GhostApp() {
    backupBusy = true
    torrentWorker.execute {
     val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) }
-    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Saved $it books to your backup file" }.onFailure { error = "Backup failed: ${it.message}" } }
+    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Keep this ZIP in Google Drive for tablet access." }.onFailure { error = "Backup failed: ${it.message}" } }
    }
   }
  }
@@ -144,7 +144,7 @@ private fun GhostApp() {
    backupBusy = true
    torrentWorker.execute {
     val result = runCatching { LibraryBackup.restore(ctx.applicationContext, uri) }
-    uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it books and reading settings" }.onFailure { error = "Restore failed: ${it.message}" } }
+    uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it ebooks, available audiobooks and saved progress"; audioFiles = scanAudioFiles(File(ctx.filesDir, "audio")) }.onFailure { error = "Restore failed: ${it.message}" } }
    }
   }
  }
@@ -231,12 +231,12 @@ private fun GhostApp() {
      if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
     }
     Spacer(Modifier.height(12.dp))
-    Text("LIBRARY BACKUP", color = violet, fontWeight = FontWeight.Bold)
+    Text("SHARED LIBRARY  •  GOOGLE DRIVE", color = violet, fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-     OutlinedButton(enabled = !backupBusy, onClick = { backupExport.launch("GhostReader-Library.zip") }) { Text("Back up") }
-     OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Restore") }
+     OutlinedButton(enabled = !backupBusy, onClick = { backupExport.launch("GhostReader-Library.zip") }) { Text("Save library") }
+     OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Load library") }
     }
-    Text("Save your EPUBs and reading progress to a file you control.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+    Text("Choose Google Drive in the Android file picker to save or load a portable ZIP of ebooks, audiobooks and progress. Manual transfer for now; automatic sync is not enabled.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
     if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(12.dp))
     }
