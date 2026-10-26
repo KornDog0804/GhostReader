@@ -140,7 +140,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     uiHandler.post {
      books = scanBooks(shelf)
      audioFiles = scanAudioFiles(File(ctx.filesDir, "audio"))
-     torrentStatus = if (magnetMode == "audio") "Audiobook downloaded and added to your shelf" else "EPUB downloaded and added to your shelf"
+     torrentStatus = if (magnetMode == "audio") "Audiobook download complete. Multi-track collections are saved together; grouped playback is coming next." else "EPUB downloaded and added to your shelf"
      torrentBusy = false
      torrentEngine = null
     }
@@ -388,7 +388,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  if (audioSelection != null && audioChoices.isNotEmpty()) {
   AlertDialog(onDismissRequest = { audioSelection?.complete(-1) }, title = { Text("Choose audiobook") }, text = {
    Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
-    Text("Select one file to download. Larger audiobooks may need several GB of free storage.")
+    Text("Choose one track or download the complete multi-track audiobook. Full downloads need extra temporary storage.")
+    TextButton(onClick = { audioSelection?.complete(-2) }, modifier = Modifier.fillMaxWidth()) { Text("↓ Download all ${audioChoices.size} tracks • ${audioChoices.sumOf { it.bytes } / 1_000_000} MB", color = violet) }
     audioChoices.forEach { option ->
      TextButton(onClick = { audioSelection?.complete(option.index) }, modifier = Modifier.fillMaxWidth()) {
       Text("${option.name.substringAfterLast('/')}  •  ${option.bytes / 1_000_000} MB", maxLines = 2)
