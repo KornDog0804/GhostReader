@@ -78,7 +78,7 @@ private fun GhostApp() {
     downloaded = engine.download(magnet.trim(), shelf) { status ->
      uiHandler.post { torrentStatus = status }
     }
-    parseEpub(downloaded)
+    parseEpub(downloaded!!)
     uiHandler.post {
      books = scanBooks(shelf)
      torrentStatus = "EPUB downloaded and added to your shelf"
