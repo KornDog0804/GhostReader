@@ -99,6 +99,11 @@ private fun GhostApp() {
       catch (e: Exception) { error = "No torrent app installed to open magnet links" }
      }) { Text("Open magnet") }
     }
+    Spacer(Modifier.height(12.dp))
+    Text("FREE PUBLIC-DOMAIN BOOKS", color = violet, fontWeight = FontWeight.Bold)
+    TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gutenberg.org/ebooks/84"))) }) { Text("Frankenstein • Mary Shelley") }
+    TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gutenberg.org/ebooks/11"))) }) { Text("Alice’s Adventures in Wonderland • Lewis Carroll") }
+    TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gutenberg.org/ebooks/1342"))) }) { Text("Pride and Prejudice • Jane Austen") }
     Spacer(Modifier.height(16.dp))
     Text("MY SHELF  •  ${books.size} BOOKS", color = violet, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(8.dp))
