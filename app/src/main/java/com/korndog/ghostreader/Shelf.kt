@@ -167,17 +167,24 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
             .padding(bottom = 4.dp)
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-            ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+            if (entry.audio != null && entry.cover != null) {
+                // Audiobook art is square: show all of it, never cropped.
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color(0xFF14101C)), contentAlignment = Alignment.Center) {
+                    ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(4.dp)), fit = true)
+                }
+            } else {
+                ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+            }
             if (entry.audio != null) {
                 Text(
                     "🎧",
-                    fontSize = 13.sp,
+                    fontSize = 9.sp,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(5.dp)
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xCC000000))
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .background(Color(0xB3000000))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
                 )
             }
         }

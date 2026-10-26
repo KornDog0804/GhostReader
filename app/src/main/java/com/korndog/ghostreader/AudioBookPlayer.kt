@@ -148,6 +148,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    onValueChangeFinished = { player?.seekTo(position.toLong()); onProgress(position) },
    valueRange = 0f..duration.coerceAtLeast(1).toFloat(),
    enabled = player != null && duration > 0,
+   colors = SliderDefaults.colors(thumbColor = purple, activeTrackColor = purple, inactiveTrackColor = Color(0xFF3A3050)),
    modifier = Modifier.fillMaxWidth()
   )
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

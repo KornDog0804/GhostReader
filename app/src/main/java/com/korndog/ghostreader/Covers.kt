@@ -5,6 +5,10 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -65,13 +69,27 @@ internal object CoverStore {
         val miss = File(file.path + ".miss")
         if (miss.exists() && System.currentTimeMillis() - miss.lastModified() < MISS_RETRY_MS) return null
         return try {
-            val query = "https://openlibrary.org/search.json?title=${URLEncoder.encode(title, "UTF-8")}" +
-                (if (author.isNotBlank() && !author.startsWith("Unknown")) "&author=${URLEncoder.encode(author, "UTF-8")}" else "") +
-                "&limit=5&fields=cover_i"
-            val docs = JSONObject(String(get(query) ?: error("no result"))).getJSONArray("docs")
+            val hasAuthor = author.isNotBlank() && !author.startsWith("Unknown")
+            // Try the full title, then the part before a subtitle, then without a "Book 2" tail.
+            val tries = listOf(
+                title,
+                title.substringBefore(':'),
+                title.replace(Regex("(?i)[,:\\-–]?\\s*(?:[^:]*\\s)?(?:book|vol\\.?|volume)\\s*\\d+.*$"), ""),
+                title.substringAfter(':', "").replace(Regex("(?i)\\s*(?:book|vol\\.?|volume)\\s*\\d+.*$"), "")
+            ).map { it.trim().trim(',', '-', ':') }.filter { it.length >= 3 }.distinct()
             var coverId = 0L
-            for (i in 0 until docs.length()) {
-                coverId = docs.getJSONObject(i).optLong("cover_i", 0L)
+            for (t in tries) {
+                for (withAuthor in if (hasAuthor) listOf(true, false) else listOf(false)) {
+                    val query = "https://openlibrary.org/search.json?title=${URLEncoder.encode(t, "UTF-8")}" +
+                        (if (withAuthor) "&author=${URLEncoder.encode(author, "UTF-8")}" else "") +
+                        "&limit=5&fields=cover_i"
+                    val docs = runCatching { JSONObject(String(get(query) ?: error("no result"))).getJSONArray("docs") }.getOrNull() ?: continue
+                    for (i in 0 until docs.length()) {
+                        coverId = docs.getJSONObject(i).optLong("cover_i", 0L)
+                        if (coverId > 0) break
+                    }
+                    if (coverId > 0) break
+                }
                 if (coverId > 0) break
             }
             if (coverId <= 0) error("no cover")
@@ -90,33 +108,45 @@ internal object CoverStore {
 @Composable
 internal fun GeneratedCover(title: String, author: String, modifier: Modifier) {
     val hue = (abs(title.hashCode()) % 360).toFloat()
+    // Long titles lose their subtitle / series tail so the main title fits whole.
+    val main = title.substringBefore(':').ifBlank { title }.trim()
+    val sub = title.substringAfter(':', "").replace(Regex("(?i)\\s*(?:book|vol\\.?|volume)\\s*\\d+.*$"), "").trim()
     Box(
         modifier
             .clip(RoundedCornerShape(6.dp))
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.hsv(hue, 0.55f, 0.55f), Color.hsv((hue + 40f) % 360f, 0.7f, 0.25f))
+                    listOf(Color.hsv(hue, 0.5f, 0.5f), Color.hsv((hue + 40f) % 360f, 0.7f, 0.2f))
                 )
-            ),
-        contentAlignment = Alignment.Center
+            )
     ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontWeight = FontWeight.Black,
-            fontSize = 12.sp,
-            lineHeight = 14.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 5,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(6.dp)
-        )
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = main,
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = if (main.length > 28) 12.sp else 15.sp,
+                lineHeight = if (main.length > 28) 14.sp else 18.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (sub.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(sub, color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.weight(1f))
+            if (author.isNotBlank() && !author.startsWith("Unknown")) {
+                Text(author.uppercase(), color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 
 /** The cover from the file itself, else one from Open Library, else a drawn one. Never blank. */
 @Composable
-internal fun ShelfCover(embedded: Bitmap?, title: String, author: String, modifier: Modifier) {
+internal fun ShelfCover(embedded: Bitmap?, title: String, author: String, modifier: Modifier, fit: Boolean = false) {
     val context = LocalContext.current
     var fetched by remember(title, author) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(title, author, embedded == null) {
@@ -127,7 +157,7 @@ internal fun ShelfCover(embedded: Bitmap?, title: String, author: String, modifi
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = "Cover of $title",
-            contentScale = ContentScale.Crop,
+            contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
             modifier = modifier
         )
     } else {

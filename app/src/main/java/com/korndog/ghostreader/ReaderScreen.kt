@@ -66,9 +66,17 @@ private val readerThemes = listOf(
 
 /** Sections without a real heading are shown by their opening words instead of "Section 7". */
 private fun displayTitle(chapter: Chapter): String {
-    if (!chapter.title.startsWith("Section ")) return chapter.title
-    val opening = chapter.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(48)
-    return if (opening.isNullOrBlank()) chapter.title else opening
+    val generic = chapter.title.startsWith("Section ") || Regex("^(Chapter|Part)\\s*\\d+$", RegexOption.IGNORE_CASE).matches(chapter.title.trim())
+    if (!generic) return chapter.title
+    // First real line that is not just a number or a very short label.
+    val opening = chapter.text.lineSequence().map { it.trim() }
+        .firstOrNull { it.length > 3 && !it.all { c -> c.isDigit() || c == '.' || c == ' ' } }
+        ?.let { if (it.length > 44) it.take(44).trimEnd() + "…" else it }
+    return when {
+        opening.isNullOrBlank() -> chapter.title
+        chapter.title.startsWith("Section ") -> opening
+        else -> chapter.title + "  ·  " + opening
+    }
 }
 
 @Composable
@@ -133,7 +141,7 @@ internal fun ReaderScreen(
         lineHeight = (fontSize * spacing).sp,
         color = theme.text,
         fontFamily = if (serif) FontFamily.Serif else FontFamily.SansSerif,
-        textAlign = TextAlign.Justify
+        textAlign = TextAlign.Start
     )
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -303,13 +311,26 @@ internal fun ReaderScreen(
             val inBook = (charsBefore[chapterIndex] + offset.coerceIn(0, chapters[chapterIndex].text.length)).toFloat()
             val bookProgress = (inBook / totalChars).coerceIn(0f, 1f)
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Box(
-                    Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
-                        .background(theme.text.copy(alpha = 0.15f))
-                ) {
-                    Box(Modifier.fillMaxWidth(bookProgress).fillMaxHeight().background(theme.accent))
-                }
-                Spacer(Modifier.height(6.dp))
+                var dragValue by remember { mutableStateOf<Float?>(null) }
+                androidx.compose.material3.Slider(
+                    value = dragValue ?: bookProgress,
+                    onValueChange = { dragValue = it },
+                    onValueChangeFinished = {
+                        dragValue?.let { fraction ->
+                            val target = (fraction * totalChars).toInt().coerceIn(0, totalChars - 1)
+                            val ci = charsBefore.indexOfLast { it <= target }.coerceAtLeast(0)
+                            chapterIndex = ci
+                            offset = (target - charsBefore[ci]).coerceAtLeast(0)
+                        }
+                        dragValue = null
+                    },
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = theme.accent,
+                        activeTrackColor = theme.accent,
+                        inactiveTrackColor = theme.text.copy(alpha = 0.18f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(24.dp)
+                )
                 Row(Modifier.fillMaxWidth()) {
                     Text(
                         "Page $pageNumber of $pageCount  •  Chapter ${chapterIndex + 1} of ${chapters.size}",
@@ -318,7 +339,7 @@ internal fun ReaderScreen(
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        "${(bookProgress * 100).toInt()}%",
+                        if (bookProgress < 0.1f) "%.1f%%".format(bookProgress * 100) else "${(bookProgress * 100).toInt()}%",
                         color = theme.accent,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
@@ -426,7 +447,10 @@ internal fun ReaderScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 if (tocTab == 0) {
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    val tocState = androidx.compose.foundation.lazy.rememberLazyListState(
+                        initialFirstVisibleItemIndex = (chapterIndex - 2).coerceAtLeast(0)
+                    )
+                    LazyColumn(Modifier.fillMaxSize(), state = tocState) {
                         itemsIndexed(chapters) { index, chapter ->
                             Text(
                                 "${index + 1}.  ${displayTitle(chapter)}",
