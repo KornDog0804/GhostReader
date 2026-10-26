@@ -293,8 +293,48 @@ private fun GhostApp() {
  if (error != null) AlertDialog(onDismissRequest = { error = null }, title = { Text("GhostReader") }, text = { Text(error!!) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } })
 }
 
+private data class BookMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?)
+
+private fun readBookMetadata(file: File): BookMetadata = runCatching {
+ ZipFile(file).use { zip ->
+  fun doc(path: String): org.w3c.dom.Document {
+   val entry = zip.getEntry(path) ?: error("Missing metadata")
+   val factory = DocumentBuilderFactory.newInstance().apply {
+    isNamespaceAware = true
+    runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+    runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+    runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+   }
+   val builder = factory.newDocumentBuilder()
+   builder.setEntityResolver { _, _ -> org.xml.sax.InputSource(java.io.StringReader("")) }
+   zip.getInputStream(entry).use { builder.parse(it) }
+  }
+  val container = doc("META-INF/container.xml")
+  val opfPath = (container.getElementsByTagNameNS("*", "rootfile").item(0) as Element).getAttribute("full-path")
+  val opf = doc(opfPath)
+  fun meta(name: String) = opf.getElementsByTagNameNS("*", name).item(0)?.textContent?.trim().orEmpty()
+  val title = meta("title").ifBlank { file.name.substringAfter('_').removeSuffix(".epub") }
+  val author = meta("creator").ifBlank { "Unknown author" }
+  val items = opf.getElementsByTagNameNS("*", "item")
+  val coverId = (0 until opf.getElementsByTagNameNS("*", "meta").length).map { opf.getElementsByTagNameNS("*", "meta").item(it) as Element }
+   .firstOrNull { it.getAttribute("name") == "cover" }?.getAttribute("content")
+  val image = (0 until items.length).map { items.item(it) as Element }.firstOrNull {
+   it.getAttribute("id") == coverId || it.getAttribute("properties").split(' ').contains("cover-image")
+  }
+  val cover = image?.let {
+   val base = opfPath.substringBeforeLast('/', "")
+   val path = (if (base.isBlank()) it.getAttribute("href") else "$base/${it.getAttribute("href")}")
+   val normalized = java.net.URI(null, null, "/$path", null).normalize().path.removePrefix("/")
+   zip.getEntry(normalized)?.takeIf { entry -> entry.size in 1..5_000_000L }?.let { entry ->
+    zip.getInputStream(entry).use { stream -> android.graphics.BitmapFactory.decodeStream(stream) }
+   }
+  }
+  BookMetadata(title, author, cover)
+ }
+}.getOrElse { BookMetadata(file.name.substringAfter('_').removeSuffix(".epub").replace('_', ' '), "Unknown author", null) }
+
 private fun scanBooks(dir: File): List<Book> = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".epub", true) }?.sortedByDescending { it.lastModified() }?.map {
- Book(it, it.name.substringAfter('_').removeSuffix(".epub").replace('_', ' '))
+ Book(it, readBookMetadata(it).title)
 } ?: emptyList()
 
 private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
