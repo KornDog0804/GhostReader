@@ -7,7 +7,13 @@
   <service android:name=".GhostAudioService" android:exported="true" android:foregroundServiceType="mediaPlayback">
    <intent-filter><action android:name="androidx.media3.session.MediaSessionService"/></intent-filter>
   </service>
-  <activity android:name=".MainActivity" android:exported="true">
+  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+   <intent-filter>
+    <action android:name="android.intent.action.VIEW"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+    <category android:name="android.intent.category.BROWSABLE"/>
+    <data android:scheme="magnet"/>
+   </intent-filter>
    <intent-filter>
     <action android:name="android.intent.action.MAIN"/>
     <category android:name="android.intent.category.LAUNCHER"/>
