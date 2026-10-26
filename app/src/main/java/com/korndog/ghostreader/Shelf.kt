@@ -275,7 +275,8 @@ private fun EntryGrid(
     entries: List<ShelfEntry>,
     onOpen: (ShelfEntry) -> Unit,
     onLong: (ShelfEntry) -> Unit,
-    header: (@Composable () -> Unit)? = null
+    showHeader: Boolean = false,
+    header: @Composable () -> Unit = {}
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -284,7 +285,7 @@ private fun EntryGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (header != null) item(span = { GridItemSpan(maxLineSpan) }) { header() }
+        if (showHeader) item(span = { GridItemSpan(maxLineSpan) }) { header() }
         items(entries, key = { it.key + it.title }) { entry ->
             CoverTile(entry, onOpen = { onOpen(entry) }, onLong = { onLong(entry) })
         }
@@ -502,18 +503,16 @@ internal fun LibraryScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-                } else EntryGrid(entries, open, long, header = if (continuing.isNotEmpty() && filter == 0 && query.isBlank()) {
-                    {
-                        Column {
-                            Text("Continue", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
-                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                items(continuing, key = { it.key }) { e -> ContinueCard(e, onOpen = { open(e) }, onLong = { long(e) }) }
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            Text("Everything", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                } else EntryGrid(entries, open, long, showHeader = continuing.isNotEmpty() && filter == 0 && query.isBlank()) {
+                    Column {
+                        Text("Continue", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(continuing, key = { it.key }) { e -> ContinueCard(e, onOpen = { open(e) }, onLong = { long(e) }) }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        Text("Everything", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
-                } else null)
+                }
 
                 tab == 1 -> GroupList(
                     groups = entries.groupBy { it.author.ifBlank { "Unknown author" } }
