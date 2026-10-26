@@ -15,6 +15,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,6 +61,7 @@ class MainActivity : ComponentActivity() {
  }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GhostApp() {
  val ctx = LocalContext.current
@@ -66,6 +69,7 @@ private fun GhostApp() {
  val prefs = remember { ctx.getSharedPreferences("reading", 0) }
  var books by remember { mutableStateOf(scanBooks(shelf)) }
  var selected by remember { mutableStateOf<Book?>(null) }
+ var deleteCandidate by remember { mutableStateOf<Book?>(null) }
  var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
  var chapterIndex by remember { mutableIntStateOf(0) }
  var pageIndex by remember { mutableIntStateOf(0) }
@@ -194,7 +198,7 @@ private fun GhostApp() {
     if (books.isEmpty()) Text("Your bookshelf is waiting. Import an EPUB or download an authorized book to see its cover, title, and author here.", color = Color.LightGray)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
      books.forEach { book ->
-      Card(onClick = { openBook(book) }, shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
+      Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { openBook(book) }, onLongClick = { deleteCandidate = book }), shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
        val metadata = remember(book.file.absolutePath) { readBookMetadata(book.file) }
        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         if (metadata.cover != null) {
@@ -286,6 +290,26 @@ private fun GhostApp() {
     }
    }
   }
+ }
+ if (deleteCandidate != null) {
+  val candidate = deleteCandidate!!
+  AlertDialog(
+   onDismissRequest = { deleteCandidate = null },
+   title = { Text("Delete book?") },
+   text = { Text("Remove ${candidate.title} from this device? This also clears its saved reading position. Your external backup files are not affected.") },
+   confirmButton = {
+    TextButton(onClick = {
+     val file = candidate.file
+     if (file.delete()) {
+      prefs.edit().remove(file.name).remove(file.name + "_page").apply()
+      books = scanBooks(shelf)
+      if (selected?.file == file) selected = null
+     } else error = "Couldn't delete this book"
+     deleteCandidate = null
+    }) { Text("Delete", color = Color(0xFFFF7777)) }
+   },
+   dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") } }
+  )
  }
  if (error != null) AlertDialog(onDismissRequest = { error = null }, title = { Text("GhostReader") }, text = { Text(error!!) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } })
 }
