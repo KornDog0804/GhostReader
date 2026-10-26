@@ -145,10 +145,10 @@ private fun GhostApp() {
      if (c.moveToFirst() && index >= 0) c.getString(index) else null
     } ?: "audiobook.m4b"
     val safe = name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
-    if (!safe.endsWith(".m4b", true) && !safe.endsWith(".mp3", true) && !safe.endsWith(".m4a", true)) error("Choose an M4B, MP3, or M4A file")
+    if (!safe.endsWith(".m4b", true) && !safe.endsWith(".mp3", true) && !safe.endsWith(".m4a", true)) throw IllegalArgumentException("Choose an M4B, MP3, or M4A file")
     val folder = File(ctx.filesDir, "audio").apply { mkdirs() }
     val target = File(folder, "${System.currentTimeMillis()}_$safe")
-    try { ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Could not open audio file") }
+    try { ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: throw IllegalStateException("Could not open audio file") }
     catch (e: Exception) { target.delete(); throw e }
     audioFiles = scanAudioFiles(folder)
    } catch (e: Exception) { error = e.message ?: "Could not import audiobook" }
