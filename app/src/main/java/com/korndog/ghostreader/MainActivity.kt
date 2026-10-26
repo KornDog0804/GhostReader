@@ -82,6 +82,7 @@ private fun GhostApp() {
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
   Column(Modifier.fillMaxSize().padding(20.dp)) {
    if (selected == null) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
     Spacer(Modifier.height(18.dp))
     Text("GHOSTREADER", style = MaterialTheme.typography.headlineLarge, color = violet, fontWeight = FontWeight.Black)
     Text("Your library. Your rules.", color = Color.LightGray)
@@ -91,7 +92,7 @@ private fun GhostApp() {
     OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Magnet links (external torrent app)") }
     if (showMagnet) {
      Spacer(Modifier.height(8.dp))
-     OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth())
+     OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 120.dp), maxLines = 3, singleLine = false)
      Text("Requires a separate torrent app. Download the EPUB there, then import it here.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
      Button(onClick = {
       if (!magnet.startsWith("magnet:?xt=urn:btih:", true)) { error = "Enter a valid BitTorrent magnet link" }
@@ -108,8 +109,8 @@ private fun GhostApp() {
     Text("MY SHELF  •  ${books.size} BOOKS", color = violet, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(8.dp))
     if (books.isEmpty()) Text("Your shelf is empty. Import a DRM-free EPUB to start reading.", color = Color.LightGray)
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-     items(books) { book ->
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+     books.forEach { book ->
       Card(onClick = { openBook(book) }, colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
        Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Text("📖  ${book.title}", color = Color.White, fontWeight = FontWeight.Bold)
@@ -117,6 +118,7 @@ private fun GhostApp() {
        }
       }
      }
+    }
     }
    } else {
     val book = selected!!
