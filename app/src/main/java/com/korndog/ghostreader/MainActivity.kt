@@ -395,8 +395,18 @@ private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
   val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
   val body = Regex("<body\\b[^>]*>([\\s\\S]*?)</body>", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1) ?: html
   val clean = body.replace(Regex("<(script|style)\\b[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE), "")
-  val plain = Html.fromHtml(clean, Html.FROM_HTML_MODE_LEGACY).toString().replace("\\uFFFC", "").replace(Regex("[ \\t]+\\n"), "\\n").trim()
-  if (plain.isNotBlank()) result.add(Chapter("Section ${result.size + 1}", plain))
+  // U+FFFC is the placeholder Html.fromHtml leaves where an image sat; it must be stripped as the real
+  // character (not the text "\uFFFC"), and the cleanup must keep real newlines (not insert the letter n).
+  val plain = Html.fromHtml(clean, Html.FROM_HTML_MODE_LEGACY).toString()
+   .replace("\uFFFC", "")
+   .replace(Regex("[ \\t]+\n"), "\n")
+   .replace(Regex("\n{3,}"), "\n\n")
+   .trim()
+  // Use the section's own heading as its title when it has one, instead of "Section N".
+  val heading = Regex("<h[1-3]\\b[^>]*>([\\s\\S]*?)</h[1-3]>", RegexOption.IGNORE_CASE).find(clean)
+   ?.groupValues?.get(1)?.let { Html.fromHtml(it, Html.FROM_HTML_MODE_LEGACY).toString().replace("\uFFFC", "").replace(Regex("\\s+"), " ").trim() }
+   ?.takeIf { it.isNotBlank() && it.length <= 60 }
+  if (plain.isNotBlank()) result.add(Chapter(heading ?: "Section ${result.size + 1}", plain))
  }
  if (result.isEmpty()) error("No readable chapters found in this EPUB")
  result
