@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -50,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -80,7 +83,8 @@ internal data class ShelfEntry(
     val key: String = "",
     val progress: Float = 0f,
     val started: Boolean = false,
-    val lastRead: Long = 0L
+    val lastRead: Long = 0L,
+    val added: Long = 0L
 ) {
     val finished: Boolean get() = started && progress >= 0.97f
     val inProgress: Boolean get() = started && !finished
@@ -228,7 +232,8 @@ private fun HomeButton(label: String, filled: Boolean, onClick: () -> Unit) {
 
 @Composable
 internal fun ShellNav(selected: Int, onSelect: (Int) -> Unit) {
-    NavigationBar(containerColor = Color(0xFF0E0A14), modifier = Modifier.navigationBarsPadding()) {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(listOf(Color(0x00B784FF), Color(0x66B784FF), Color(0x00B784FF)))))
+    NavigationBar(containerColor = Color(0xFF0C0813), modifier = Modifier.navigationBarsPadding()) {
         val colors = NavigationBarItemDefaults.colors(
             selectedIconColor = accent,
             selectedTextColor = accent,
@@ -250,67 +255,187 @@ internal fun ShellNav(selected: Int, onSelect: (Int) -> Unit) {
 
 // ---------------------------------------------------------------- library
 
+/** Poster art: ebooks fill the poster; square audiobook art sits on a blurred copy of itself. */
+@Composable
+private fun PosterArt(entry: ShelfEntry, modifier: Modifier) {
+    val cover = entry.cover
+    Box(modifier) {
+        if (cover != null && entry.audio != null) {
+            Image(
+                bitmap = cover.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(24.dp)
+            )
+            Box(Modifier.fillMaxSize().background(Color(0x73000000)))
+            Image(
+                bitmap = cover.asImageBitmap(), contentDescription = "Cover of ${entry.title}", contentScale = ContentScale.Fit,
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth().aspectRatio(1f)
+            )
+        } else {
+            ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxSize())
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.PosterBadges(entry: ShelfEntry) {
+    if (entry.audio != null) {
+        Text(
+            "🎧",
+            fontSize = 9.sp,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(6.dp)
+                .padding(bottom = if (entry.inProgress) 5.dp else 0.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0x99000000))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
+        )
+    }
+    when {
+        entry.finished -> Text(
+            "✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(50)).background(Color(0xFF6D3FD0)).padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+        !entry.started -> Text(
+            "NEW", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black,
+            modifier = Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF6D3FD0)).padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+    }
+    if (entry.inProgress) {
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x99000000))
+        ) {
+            Box(Modifier.fillMaxWidth(entry.progress.coerceIn(0.02f, 1f)).fillMaxHeight().background(accent))
+        }
+    }
+}
+
+/** A poster with a glass finish: soft sheen across the art and a thin lit edge. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit) {
-    Column(
-        Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .combinedClickable(onClick = onOpen, onLongClick = onLong)
-            .padding(bottom = 4.dp)
-    ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-            if (entry.audio != null && entry.cover != null) {
-                // Audiobook art is square: show all of it, never cropped.
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color(0xFF14101C)), contentAlignment = Alignment.Center) {
-                    ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(4.dp)), fit = true)
-                }
-            } else {
-                ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
-            }
-            if (entry.audio != null) {
-                Text(
-                    "🎧",
-                    fontSize = 9.sp,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .padding(bottom = if (entry.inProgress) 5.dp else 0.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color(0xB3000000))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+private fun GlassPoster(entry: ShelfEntry, modifier: Modifier, showTitle: Boolean, onOpen: () -> Unit, onLong: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(modifier.clip(shape).combinedClickable(onClick = onOpen, onLongClick = onLong)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(shape)) {
+            PosterArt(entry, Modifier.fillMaxSize())
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.linearGradient(listOf(Color(0x40FFFFFF), Color(0x00FFFFFF), Color(0x00FFFFFF), Color(0x1FFFFFFF)))
                 )
-            }
-            when {
-                entry.finished -> Text(
-                    "✓",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).clip(RoundedCornerShape(50)).background(Color(0xFF6D3FD0)).padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+            Box(
+                Modifier.fillMaxSize().border(
+                    1.dp, Brush.linearGradient(listOf(Color(0x99FFFFFF), Color(0x14FFFFFF), Color(0x66FFFFFF))), shape
                 )
-                !entry.started -> Text(
-                    "NEW",
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.align(Alignment.TopStart).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF6D3FD0)).padding(horizontal = 5.dp, vertical = 2.dp)
-                )
+            )
+            PosterBadges(entry)
+        }
+        if (showTitle) {
+            Spacer(Modifier.height(7.dp))
+            Text(entry.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (entry.author.isNotBlank() && !entry.author.startsWith("Unknown")) {
+                Text(entry.author, color = Color(0xFF9B8DB0), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+}
+
+@Composable
+private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit) =
+    GlassPoster(entry, Modifier, true, onOpen, onLong)
+
+/** The big banner: a blurred wash of the cover, the poster, title and one clear button. */
+@Composable
+private fun Hero(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit) {
+    Box(Modifier.fillMaxWidth().height(440.dp)) {
+        val cover = entry.cover
+        if (cover != null) {
+            Image(
+                bitmap = cover.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(44.dp).alpha(0.6f)
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF3A1F6B), screenBg))))
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x33000000), Color(0x66000000), screenBg))))
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(Modifier.width(158.dp)) { GlassPoster(entry, Modifier, false, onOpen, onLong) }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                entry.title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 21.sp, lineHeight = 24.sp,
+                textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis
+            )
+            if (entry.author.isNotBlank() && !entry.author.startsWith("Unknown")) {
+                Text(entry.author, color = Color(0xFFCDBFE3), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(12.dp))
             if (entry.inProgress) {
-                Box(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp)
-                        .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)).background(Color(0x99000000))
-                ) {
+                Box(Modifier.width(200.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x66FFFFFF))) {
                     Box(Modifier.fillMaxWidth(entry.progress.coerceIn(0.02f, 1f)).fillMaxHeight().background(accent))
                 }
+                Spacer(Modifier.height(12.dp))
+            }
+            val label = when {
+                entry.audio != null && entry.started -> "▶  Continue listening"
+                entry.audio != null -> "▶  Start listening"
+                entry.started -> "Continue reading"
+                else -> "Start reading"
+            }
+            Text(
+                label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF7B4BE0), Color(0xFF5B34B8))))
+                    .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(50))
+                    .clickable(onClick = onOpen)
+                    .padding(horizontal = 28.dp, vertical = 12.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShelfRow(title: String, entries: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, onLong: (ShelfEntry) -> Unit) {
+    Column {
+        Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 10.dp))
+        androidx.compose.foundation.lazy.LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(entries, key = { it.key + it.title }) { e ->
+                GlassPoster(e, Modifier.width(118.dp), true, { onOpen(e) }, { onLong(e) })
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(entry.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (entry.author.isNotBlank() && !entry.author.startsWith("Unknown")) {
-            Text(entry.author, color = Color(0xFF9B8DB0), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** The front page: hero banner, then shelves, like a streaming app. */
+@Composable
+private fun HomeTab(all: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, onLong: (ShelfEntry) -> Unit) {
+    val hero = all.filter { it.inProgress }.maxByOrNull { it.lastRead } ?: all.maxByOrNull { it.added }
+    if (hero == null) {
+        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+            Text("Your library is waiting. Open Downloads to add books.", color = Color(0xFF9B8DB0), textAlign = TextAlign.Center)
         }
+        return
+    }
+    val continuing = all.filter { it.inProgress }.sortedByDescending { it.lastRead }
+    val audiobooks = all.filter { it.audio != null }.sortedByDescending { it.added }
+    val ebooks = all.filter { it.audio == null }.sortedByDescending { it.added }
+    val recent = all.sortedByDescending { it.added }.take(12)
+    val finished = all.filter { it.finished }
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 28.dp)) {
+        item { Hero(hero, onOpen = { onOpen(hero) }, onLong = { onLong(hero) }) }
+        if (continuing.isNotEmpty()) item { ShelfRow("Continue", continuing, onOpen, onLong) }
+        if (audiobooks.isNotEmpty()) item { ShelfRow("Audiobooks", audiobooks, onOpen, onLong) }
+        if (ebooks.isNotEmpty()) item { ShelfRow("Books", ebooks, onOpen, onLong) }
+        if (all.size > 3) item { ShelfRow("Recently added", recent, onOpen, onLong) }
+        if (finished.isNotEmpty()) item { ShelfRow("Finished", finished, onOpen, onLong) }
     }
 }
 
@@ -464,7 +589,7 @@ internal fun LibraryScreen(
                 ShelfEntry(
                     book, null, title, author, overrideCover(key) ?: meta?.cover, 0L, seriesOf(title), key,
                     progress = prefs.getFloat(key + "_pct", 0f), started = started,
-                    lastRead = prefs.getLong(key + "_ts", 0L)
+                    lastRead = prefs.getLong(key + "_ts", 0L), added = book.file.lastModified()
                 )
             }
             val audios = audio.map { file ->
@@ -478,7 +603,7 @@ internal fun LibraryScreen(
                     null, file, title, author, overrideCover(key) ?: info?.cover, duration, seriesOf(title), key,
                     progress = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
                     started = position > 5_000,
-                    lastRead = prefs.getLong("ats_$key", 0L)
+                    lastRead = prefs.getLong("ats_$key", 0L), added = file.lastModified()
                 )
             }
             audios + ebooks
@@ -535,12 +660,12 @@ internal fun LibraryScreen(
             )
         }
         TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = accent) {
-            listOf("Books", "Authors", "Series").forEachIndexed { index, label ->
+            listOf("Home", "All", "Authors", "Series").forEachIndexed { index, label ->
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label, fontWeight = FontWeight.SemiBold) })
             }
         }
-        // Filter chips and sort.
-        androidx.compose.foundation.lazy.LazyRow(
+        // Filter chips and sort (All tab).
+        if (tab == 1) androidx.compose.foundation.lazy.LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -576,7 +701,9 @@ internal fun LibraryScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 loaded == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accent) }
-                tab == 0 -> if (entries.isEmpty()) {
+                tab == 0 -> HomeTab(all, open, long)
+
+                tab == 1 -> if (entries.isEmpty()) {
                     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                         Text(
                             when {
@@ -587,18 +714,9 @@ internal fun LibraryScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-                } else EntryGrid(entries, open, long, showHeader = continuing.isNotEmpty() && filter == 0 && query.isBlank()) {
-                    Column {
-                        Text("Continue", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
-                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(continuing, key = { it.key }) { e -> ContinueCard(e, onOpen = { open(e) }, onLong = { long(e) }) }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Text("Everything", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
-                }
+                } else EntryGrid(entries, open, long)
 
-                tab == 1 -> GroupList(
+                tab == 2 -> GroupList(
                     groups = entries.groupBy { it.author.ifBlank { "Unknown author" } }
                         .toList().sortedBy { it.first.lowercase() },
                     emptyText = "No authors yet.",
