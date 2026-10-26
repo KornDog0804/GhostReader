@@ -77,6 +77,7 @@ private fun GhostApp() {
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
+ var showTools by remember { mutableStateOf(false) }
  var backupBusy by remember { mutableStateOf(false) }
  var backupStatus by remember { mutableStateOf("") }
  var torrentBusy by remember { mutableStateOf(false) }
@@ -169,7 +170,15 @@ private fun GhostApp() {
     Text("GHOSTREADER", style = MaterialTheme.typography.headlineLarge, color = violet, fontWeight = FontWeight.Black)
     Text("THE READING ROOM", color = Color(0xFF9682AC), style = MaterialTheme.typography.labelSmall)
     Text("Your library. Your rules.", color = Color.LightGray)
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(20.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+     Text("YOUR BOOKS  •  ${books.size}", color = violet, fontWeight = FontWeight.Bold)
+     TextButton(onClick = { showTools = !showTools }) { Text(if (showTools) "Close tools ✕" else "Library tools ⚙") }
+    }
+    Spacer(Modifier.height(8.dp))
+    if (showTools) {
+    Text("IMPORT & DOWNLOAD", color = violet, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(8.dp))
     Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }) { Text("＋ Import EPUB") }
     Spacer(Modifier.height(8.dp))
     OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Magnet EPUB download (built in)") }
@@ -192,8 +201,9 @@ private fun GhostApp() {
     Text("Save your EPUBs and reading progress to a file you control.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
     if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(12.dp))
-    Text("THE BOOKSHELF  •  ${books.size} BOOKS", color = violet, fontWeight = FontWeight.Bold)
-    Text("Covers and details are read from each EPUB", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+    }
+    Text("THE BOOKSHELF", color = violet, fontWeight = FontWeight.Bold)
+    Text("Tap to read  •  Hold to manage", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(12.dp))
     if (books.isEmpty()) Text("Your bookshelf is waiting. Import an EPUB or download an authorized book to see its cover, title, and author here.", color = Color.LightGray)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -385,7 +395,7 @@ private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
   val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
   val body = Regex("<body\\b[^>]*>([\\s\\S]*?)</body>", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1) ?: html
   val clean = body.replace(Regex("<(script|style)\\b[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE), "")
-  val plain = Html.fromHtml(clean, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+  val plain = Html.fromHtml(clean, Html.FROM_HTML_MODE_LEGACY).toString().replace("\\uFFFC", "").replace(Regex("[ \\t]+\\n"), "\\n").trim()
   if (plain.isNotBlank()) result.add(Chapter("Section ${result.size + 1}", plain))
  }
  if (result.isEmpty()) error("No readable chapters found in this EPUB")
