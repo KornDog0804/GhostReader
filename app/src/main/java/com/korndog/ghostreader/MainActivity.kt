@@ -29,6 +29,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import org.w3c.dom.Element
 import java.io.File
 import java.util.zip.ZipFile
@@ -55,6 +63,8 @@ private fun GhostApp() {
  var selected by remember { mutableStateOf<Book?>(null) }
  var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
  var chapterIndex by remember { mutableIntStateOf(0) }
+ var pageIndex by remember { mutableIntStateOf(0) }
+ var fontSize by remember { mutableFloatStateOf(prefs.getFloat("fontSize", 18f)) }
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
@@ -161,6 +171,7 @@ private fun GhostApp() {
    chapters = parseEpub(book.file)
    selected = book
    chapterIndex = prefs.getInt(book.file.name, 0).coerceIn(0, chapters.lastIndex)
+   pageIndex = prefs.getInt(book.file.name + "_page", 0)
    error = null
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
@@ -216,14 +227,64 @@ private fun GhostApp() {
      val current = chapters[chapterIndex]
      Text("${chapterIndex + 1} / ${chapters.size}  •  ${current.title}", color = violet, style = MaterialTheme.typography.titleMedium)
      Spacer(Modifier.height(12.dp))
-     key(book.file.name, chapterIndex) {
-      Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-       Text(current.text, color = Color(0xFFF3EDF9), style = MaterialTheme.typography.bodyLarge, lineHeight = androidx.compose.ui.unit.TextUnit(27f, androidx.compose.ui.unit.TextUnitType.Sp))
+     val config = LocalConfiguration.current
+     val density = androidx.compose.ui.platform.LocalDensity.current
+     val measurer = rememberTextMeasurer()
+     val pageWidth = with(density) { (config.screenWidthDp.dp - 40.dp).roundToPx() }.coerceAtLeast(100)
+     val pageHeight = with(density) { (config.screenHeightDp.dp - 245.dp).roundToPx() }.coerceAtLeast(150)
+     val textStyle = TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp, color = Color(0xFFF3EDF9))
+     val pages = remember(current.text, pageWidth, pageHeight, fontSize) {
+      val result = mutableListOf<String>()
+      var pos = 0
+      val body = current.text
+      while (pos < body.length) {
+       var lo = pos + 1
+       var hi = body.length
+       var best = lo
+       while (lo <= hi) {
+        val mid = (lo + hi) ushr 1
+        val layout = measurer.measure(AnnotatedString(body.substring(pos, mid)), style = textStyle, constraints = Constraints(maxWidth = pageWidth))
+        if (layout.size.height <= pageHeight) { best = mid; lo = mid + 1 } else hi = mid - 1
+       }
+       val boundary = if (best < body.length) body.lastIndexOf(' ', best).takeIf { it > pos + (best - pos) / 2 } ?: best else best
+       result.add(body.substring(pos, boundary).trim())
+       pos = boundary
+       while (pos < body.length && body[pos].isWhitespace()) pos++
+      }
+      result.ifEmpty { listOf("") }
+     }
+     LaunchedEffect(chapterIndex, pages.size) { pageIndex = pageIndex.coerceIn(0, pages.lastIndex) }
+     fun movePage(direction: Int) {
+      if (direction > 0) {
+       if (pageIndex < pages.lastIndex) pageIndex++
+       else if (chapterIndex < chapters.lastIndex) { chapterIndex++; pageIndex = 0 }
+      } else {
+       if (pageIndex > 0) pageIndex--
+       else if (chapterIndex > 0) { chapterIndex--; pageIndex = 999999 }
+      }
+      prefs.edit().putInt(book.file.name, chapterIndex).putInt(book.file.name + "_page", pageIndex).apply()
+     }
+     var drag by remember { mutableFloatStateOf(0f) }
+     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+      TextButton(onClick = { fontSize = (fontSize - 2).coerceAtLeast(14f); prefs.edit().putFloat("fontSize", fontSize).apply(); pageIndex = 0 }) { Text("A−") }
+      TextButton(onClick = { fontSize = (fontSize + 2).coerceAtMost(30f); prefs.edit().putFloat("fontSize", fontSize).apply(); pageIndex = 0 }) { Text("A+") }
+     }
+     Box(Modifier.weight(1f).fillMaxWidth().pointerInput(chapterIndex, pageIndex, pages.size) {
+      detectHorizontalDragGestures(onDragEnd = {
+       if (drag > 70f) movePage(-1) else if (drag < -70f) movePage(1)
+       drag = 0f
+      }, onHorizontalDrag = { change, amount -> drag += amount; change.consume() })
+     }) {
+      Text(pages[pageIndex.coerceIn(0, pages.lastIndex)], style = textStyle)
+      Row(Modifier.fillMaxSize()) {
+       Box(Modifier.weight(1f).fillMaxHeight().clickable { movePage(-1) })
+       Box(Modifier.weight(1f).fillMaxHeight().clickable { movePage(1) })
       }
      }
+     Text("Page ${pageIndex.coerceIn(0, pages.lastIndex) + 1} of ${pages.size}  •  Chapter ${chapterIndex + 1} of ${chapters.size}", color = violet, style = MaterialTheme.typography.labelSmall)
      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-      OutlinedButton(enabled = chapterIndex > 0, onClick = { chapterIndex--; prefs.edit().putInt(book.file.name, chapterIndex).apply() }) { Text("← Previous") }
-      Button(enabled = chapterIndex < chapters.lastIndex, onClick = { chapterIndex++; prefs.edit().putInt(book.file.name, chapterIndex).apply() }) { Text("Next →") }
+      OutlinedButton(enabled = chapterIndex > 0 || pageIndex > 0, onClick = { movePage(-1) }) { Text("← Previous") }
+      Button(enabled = chapterIndex < chapters.lastIndex || pageIndex < pages.lastIndex, onClick = { movePage(1) }) { Text("Next →") }
      }
     }
    }
