@@ -47,6 +47,7 @@ class BookTorrentEngine(private val context: Context) {
    progress("Choose an audiobook to download")
    val index = choose(options)
    if (cancelled || index < 0) error("Download cancelled")
+   if (index == -2) return downloadAudioBatchFromHandle(th, info, files, options, shelf, work, progress)
    if (options.none { it.index == index }) error("Invalid audiobook selection")
    val relative = files.filePath(index)
    val safeName = File(relative).name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
@@ -82,6 +83,52 @@ class BookTorrentEngine(private val context: Context) {
    session = null
    work.deleteRecursively()
   }
+ }
+
+ /** Download all audio tracks as one folder, preserving track order and original filenames. */
+ private fun downloadAudioBatchFromHandle(
+  th: TorrentHandle,
+  info: org.libtorrent4j.TorrentInfo,
+  files: org.libtorrent4j.FileStorage,
+  options: List<AudioOption>,
+  shelf: File,
+  work: File,
+  progress: (String) -> Unit
+ ): File {
+  val totalBytes = options.sumOf { it.bytes }
+  require(totalBytes <= 12_000_000_000L) { "Audiobook collection exceeds 12 GB safety limit" }
+  require(shelf.usableSpace > totalBytes * 2 + 150_000_000L) { "Not enough storage for the complete audiobook and temporary download" }
+  val selected = options.map { it.index }.toSet()
+  th.prioritizeFiles(Array(info.numFiles()) { if (it in selected) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE })
+  th.resume()
+  val pieceSize = info.pieceLength().toLong()
+  val pieces = options.flatMap { opt ->
+   val first = (files.fileOffset(opt.index) / pieceSize).toInt()
+   val last = ((files.fileOffset(opt.index) + opt.bytes - 1) / pieceSize).toInt()
+   (first..last).toList()
+  }.toSet()
+  val deadline = System.currentTimeMillis() + 12 * 60 * 60_000L
+  while (!cancelled && System.currentTimeMillis() < deadline) {
+   val ready = pieces.count { th.havePiece(it) }
+   progress("Downloading complete audiobook: ${ready * 100 / pieces.size}% (${options.size} tracks)")
+   if (ready == pieces.size) break
+   Thread.sleep(2000)
+  }
+  if (cancelled) error("Download cancelled")
+  if (!pieces.all { th.havePiece(it) }) error("Complete audiobook download timed out")
+  val folderName = options.first().name.substringBeforeLast('/', "Audiobook").substringAfterLast('/')
+   .replace(Regex("[^a-zA-Z0-9._ -]"), "_").take(90).ifBlank { "Audiobook" }
+  val target = File(shelf, "${System.currentTimeMillis()}_${folderName}").apply { mkdirs() }
+  try {
+   options.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).forEachIndexed { order, opt ->
+    val source = File(work, opt.name)
+    require(source.canonicalPath.startsWith(work.canonicalPath + File.separator) && source.isFile) { "Missing or unsafe track" }
+    val name = File(opt.name).name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
+    source.copyTo(File(target, "${order.toString().padStart(3, '0')}_${name}"))
+   }
+  } catch (e: Exception) { target.deleteRecursively(); throw e }
+  progress("Complete audiobook downloaded: ${options.size} tracks")
+  return target
  }
 
  fun cancel() {
