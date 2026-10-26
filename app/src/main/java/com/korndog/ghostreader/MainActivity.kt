@@ -152,7 +152,7 @@ private fun scanBooks(dir: File): List<Book> = dir.listFiles()?.filter { it.isFi
 
 private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
  fun xml(path: String) = zip.getEntry(path)?.let { entry ->
-  zip.getInputStream(entry).use { stream -> DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true; setFeature("http://apache.org/xml/features/disallow-doctype-decl", true); setFeature("http://xml.org/sax/features/external-general-entities", false); setFeature("http://xml.org/sax/features/external-parameter-entities", false) }.newDocumentBuilder().parse(stream) }
+  zip.getInputStream(entry).use { stream -> DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true; runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }; runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }; runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) } }.newDocumentBuilder().apply { setEntityResolver { _, _ -> org.xml.sax.InputSource(java.io.StringReader("")) } }.parse(stream) }
  } ?: error("Missing EPUB file: $path")
  val container = xml("META-INF/container.xml")
  val rootFiles = container.getElementsByTagNameNS("*", "rootfile")
