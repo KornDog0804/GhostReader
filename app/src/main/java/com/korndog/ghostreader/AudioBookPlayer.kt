@@ -55,6 +55,13 @@ private fun audioMetadata(file: File): AudioMetadata {
 internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -> Unit, onClose: () -> Unit) {
  val meta = remember(file.absolutePath) { audioMetadata(file) }
  val context = LocalContext.current
+ androidx.activity.compose.BackHandler { onClose() }
+ // No art inside the file: look the book up, the same way the library shelf does.
+ var fetchedCover by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
+ LaunchedEffect(file.absolutePath) {
+  if (meta.cover == null) fetchedCover = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { CoverStore.fetch(context, meta.title, meta.author.takeUnless { it == "YOUR AUDIOBOOK" }.orEmpty()) }.getOrNull() }
+ }
+ val coverArt = meta.cover ?: fetchedCover
  var player by remember(file.absolutePath) { mutableStateOf<MediaController?>(null) }
  var playing by remember(file.absolutePath) { mutableStateOf(false) }
  var position by remember(file.absolutePath) { mutableIntStateOf(savedPosition) }
@@ -127,7 +134,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    Modifier.fillMaxWidth(0.79f).aspectRatio(1f).clip(RoundedCornerShape(22.dp)).background(Color(0xFF251933)),
    contentAlignment = Alignment.Center
   ) {
-   if (meta.cover != null) Image(meta.cover.asImageBitmap(), contentDescription = "Audiobook cover", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+   if (coverArt != null) Image(coverArt.asImageBitmap(), contentDescription = "Audiobook cover", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
    else Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Text("GHOST", color = purple, fontSize = 34.sp, fontWeight = FontWeight.Black)
     Text("READER", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black)
