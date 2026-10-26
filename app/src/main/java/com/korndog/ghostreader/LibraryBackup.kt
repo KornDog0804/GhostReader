@@ -10,12 +10,13 @@ import java.util.zip.ZipOutputStream
 
 /** Portable, user-owned GhostReader backup. Never contains signing credentials. */
 internal object LibraryBackup {
- private const val LIMIT = 2L * 1024 * 1024 * 1024
+ private const val LIMIT = 12L * 1024 * 1024 * 1024
  private const val MAX_BOOKS = 2000
 
  fun export(context: Context, destination: Uri): Int {
   val shelf = File(context.filesDir, "books")
   val books = shelf.listFiles()?.filter { it.isFile && it.extension.equals("epub", true) } ?: emptyList()
+  val audio = File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: emptyList()
   val prefs = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
   val settings = JSONObject()
   prefs.all.forEach { (key, value) ->
@@ -31,6 +32,15 @@ internal object LibraryBackup {
     zip.putNextEntry(ZipEntry("manifest.json"))
     zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
     zip.closeEntry()
+    audio.forEachIndexed { index, file ->
+     val id = index.toString().padStart(4, '0')
+     zip.putNextEntry(ZipEntry("audio/$id.bin"))
+     file.inputStream().use { it.copyTo(zip) }
+     zip.closeEntry()
+     zip.putNextEntry(ZipEntry("audionames/$id.txt"))
+     zip.write(file.name.toByteArray(Charsets.UTF_8))
+     zip.closeEntry()
+    }
     books.forEachIndexed { index, book ->
      zip.putNextEntry(ZipEntry("books/${index.toString().padStart(4, '0')}.epub"))
      book.inputStream().use { it.copyTo(zip) }
@@ -49,6 +59,8 @@ internal object LibraryBackup {
   try {
    var manifest: JSONObject? = null
    val names = mutableMapOf<String, String>()
+   val audioNames = mutableMapOf<String, String>()
+   val audioFiles = mutableMapOf<String, File>()
    val books = mutableMapOf<String, File>()
    var total = 0L
    val input = context.contentResolver.openInputStream(source) ?: error("Cannot open backup")
@@ -93,6 +105,13 @@ internal object LibraryBackup {
     }
    }
    val restoredNames = mutableMapOf<String, String>()
+   val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
+   audioFiles.forEach { (id, file) ->
+    val original = audioNames[id] ?: error("Missing audiobook filename")
+    if (original != File(original).name || original.substringAfterLast('.', "").lowercase() !in setOf("m4b", "mp3", "m4a")) error("Invalid audiobook filename")
+    val target = File(audioDir, original)
+    if (!target.exists()) file.copyTo(target)
+   }
    books.forEach { (id, file) ->
     val original = names[id] ?: error("Missing book filename")
     if (original != File(original).name || !original.endsWith(".epub", true)) error("Invalid book filename")
