@@ -54,7 +54,7 @@ private val dark = Color(0xFF0B0911)
 private data class Book(val file: File, val title: String, val sectionPrefix: String = "") {
  val progressKey: String get() = file.name + if (sectionPrefix.isBlank()) "" else "::" + sectionPrefix
 }
-private data class Chapter(val title: String, val text: String)
+internal data class Chapter(val title: String, val text: String, val spans: List<TextSpan> = emptyList())
 
 class MainActivity : ComponentActivity() {
  private val incomingMagnet = mutableStateOf<String?>(null)
@@ -217,7 +217,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+  Column(if (selected != null && selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selectedAudio != null) {
     val file = selectedAudio!!
     AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
@@ -274,11 +274,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
       Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onClick = { selectedAudio = file }, onLongClick = { deleteAudioCandidate = file })) {
        val info = remember(file.absolutePath, file.length(), file.lastModified()) { readShelfAudioMetadata(file) }
        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        if (info.cover != null) {
-         Image(bitmap = info.cover.asImageBitmap(), contentDescription = "Cover of ${info.title}", contentScale = ContentScale.Crop, modifier = Modifier.width(76.dp).height(108.dp))
-        } else {
-         Box(Modifier.width(76.dp).height(108.dp), contentAlignment = Alignment.Center) { Text("🎧", style = MaterialTheme.typography.headlineLarge) }
-        }
+        ShelfCover(info.cover, info.title, info.author, Modifier.width(76.dp).height(108.dp))
         Column(Modifier.weight(1f)) {
          Text(info.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
          if (info.author.isNotBlank()) Text(info.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -295,11 +291,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
       Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { openBook(book) }, onLongClick = { deleteCandidate = book }), shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
        val metadata = remember(book.file.absolutePath, book.sectionPrefix) { readVolumeMetadata(book) }
        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        if (metadata.cover != null) {
-         Image(bitmap = metadata.cover.asImageBitmap(), contentDescription = "Cover of ${metadata.title}", contentScale = ContentScale.Crop, modifier = Modifier.width(76.dp).height(108.dp))
-        } else {
-         Box(Modifier.width(76.dp).height(108.dp), contentAlignment = Alignment.Center) { Text("📖", style = MaterialTheme.typography.headlineLarge) }
-        }
+        ShelfCover(metadata.cover, book.title, metadata.author, Modifier.width(76.dp).height(108.dp))
         Column(Modifier.weight(1f)) {
          Text(book.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
          Spacer(Modifier.height(4.dp))
@@ -314,74 +306,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     }
    } else {
     val book = selected!!
-    Row(verticalAlignment = Alignment.CenterVertically) {
-     TextButton(onClick = { selected = null }) { Text("‹ SHELF") }
-     Text(book.title, color = violet, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-    }
-    if (chapters.isNotEmpty()) {
-     val current = chapters[chapterIndex]
-     Text("${chapterIndex + 1} / ${chapters.size}  •  ${current.title}", color = violet, style = MaterialTheme.typography.titleMedium)
-     Spacer(Modifier.height(12.dp))
-     val config = LocalConfiguration.current
-     val density = androidx.compose.ui.platform.LocalDensity.current
-     val measurer = rememberTextMeasurer()
-     val pageWidth = with(density) { (config.screenWidthDp.dp - 40.dp).roundToPx() }.coerceAtLeast(100)
-     val pageHeight = with(density) { (config.screenHeightDp.dp - 245.dp).roundToPx() }.coerceAtLeast(150)
-     val textStyle = TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp, color = Color(0xFFF3EDF9))
-     val pages = remember(current.text, pageWidth, pageHeight, fontSize) {
-      val result = mutableListOf<String>()
-      var pos = 0
-      val body = current.text
-      while (pos < body.length) {
-       var lo = pos + 1
-       var hi = body.length
-       var best = lo
-       while (lo <= hi) {
-        val mid = (lo + hi) ushr 1
-        val layout = measurer.measure(AnnotatedString(body.substring(pos, mid)), style = textStyle, constraints = Constraints(maxWidth = pageWidth))
-        if (layout.size.height <= pageHeight) { best = mid; lo = mid + 1 } else hi = mid - 1
-       }
-       val boundary = if (best < body.length) body.lastIndexOf(' ', best).takeIf { it > pos + (best - pos) / 2 } ?: best else best
-       result.add(body.substring(pos, boundary).trim())
-       pos = boundary
-       while (pos < body.length && body[pos].isWhitespace()) pos++
-      }
-      result.ifEmpty { listOf("") }
-     }
-     LaunchedEffect(chapterIndex, pages.size) { pageIndex = pageIndex.coerceIn(0, pages.lastIndex) }
-     fun movePage(direction: Int) {
-      if (direction > 0) {
-       if (pageIndex < pages.lastIndex) pageIndex++
-       else if (chapterIndex < chapters.lastIndex) { chapterIndex++; pageIndex = 0 }
-      } else {
-       if (pageIndex > 0) pageIndex--
-       else if (chapterIndex > 0) { chapterIndex--; pageIndex = 999999 }
-      }
-      prefs.edit().putInt(book.progressKey, chapterIndex).putInt(book.progressKey + "_page", pageIndex).apply()
-     }
-     var drag by remember { mutableFloatStateOf(0f) }
-     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-      TextButton(onClick = { fontSize = (fontSize - 2).coerceAtLeast(14f); prefs.edit().putFloat("fontSize", fontSize).apply(); pageIndex = 0 }) { Text("A−") }
-      TextButton(onClick = { fontSize = (fontSize + 2).coerceAtMost(30f); prefs.edit().putFloat("fontSize", fontSize).apply(); pageIndex = 0 }) { Text("A+") }
-     }
-     Box(Modifier.weight(1f).fillMaxWidth().pointerInput(chapterIndex, pageIndex, pages.size) {
-      detectHorizontalDragGestures(onDragEnd = {
-       if (drag > 70f) movePage(-1) else if (drag < -70f) movePage(1)
-       drag = 0f
-      }, onHorizontalDrag = { change, amount -> drag += amount; change.consume() })
-     }) {
-      Text(pages[pageIndex.coerceIn(0, pages.lastIndex)], style = textStyle)
-      Row(Modifier.fillMaxSize()) {
-       Box(Modifier.weight(1f).fillMaxHeight().clickable { movePage(-1) })
-       Box(Modifier.weight(1f).fillMaxHeight().clickable { movePage(1) })
-      }
-     }
-     Text("Page ${pageIndex.coerceIn(0, pages.lastIndex) + 1} of ${pages.size}  •  Chapter ${chapterIndex + 1} of ${chapters.size}", color = violet, style = MaterialTheme.typography.labelSmall)
-     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-      OutlinedButton(enabled = chapterIndex > 0 || pageIndex > 0, onClick = { movePage(-1) }) { Text("← Previous") }
-      Button(enabled = chapterIndex < chapters.lastIndex || pageIndex < pages.lastIndex, onClick = { movePage(1) }) { Text("Next →") }
-     }
-    }
+    ReaderScreen(title = book.title, chapters = chapters, prefs = prefs, bookKey = book.progressKey, onClose = { selected = null })
    }
   }
  }
@@ -517,6 +442,7 @@ private fun readBookMetadata(file: File): BookMetadata = runCatching {
 private fun readVolumeMetadata(book: Book): BookMetadata {
  val base = readBookMetadata(book.file)
  if (book.sectionPrefix.isBlank()) return base
+ if (book.sectionPrefix.startsWith("#s")) return BookMetadata(book.title, base.author, volumeCover(book.file, book.sectionPrefix))
  val cover = runCatching {
   ZipFile(book.file).use { zip ->
    val candidates = zip.entries().asSequence().filter { entry ->
@@ -548,11 +474,10 @@ private fun scanBooks(dir: File): List<Book> = dir.listFiles()
     val entry = zip.getEntry("toc.ncx") ?: return@use emptyList<Book>()
     val factory = DocumentBuilderFactory.newInstance().apply {
      isNamespaceAware = true
-     setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-     setFeature("http://xml.org/sax/features/external-general-entities", false)
-     setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+     runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+     runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
     }
-    val doc = zip.getInputStream(entry).use { factory.newDocumentBuilder().parse(it) }
+    val doc = zip.getInputStream(entry).use { factory.newDocumentBuilder().apply { setEntityResolver { _, _ -> org.xml.sax.InputSource(java.io.StringReader("")) } }.parse(it) }
     val navs = doc.getElementsByTagNameNS("*", "navPoint")
     val found = linkedMapOf<String, String>()
     for (i in 0 until navs.length) {
@@ -569,7 +494,8 @@ private fun scanBooks(dir: File): List<Book> = dir.listFiles()
     if (found.size in 2..40) found.map { (prefix, title) -> Book(file, title.replace(Regex("(?i)\\s+anthology$"), "").trim(), prefix) } else emptyList()
    }
   }.getOrDefault(emptyList())
-  parts.ifEmpty { listOf(Book(file, readBookMetadata(file).title)) }
+  parts.ifEmpty { detectVolumes(file).map { (title, range) -> Book(file, title, range) } }
+   .ifEmpty { listOf(Book(file, readBookMetadata(file).title)) }
  } ?: emptyList()
 
 private fun parseEpub(file: File, sectionPrefix: String = ""): List<Chapter> = ZipFile(file).use { zip ->
@@ -595,13 +521,20 @@ private fun parseEpub(file: File, sectionPrefix: String = ""): List<Chapter> = Z
   val href = manifest[id] ?: continue
   val path = (if (base.isEmpty()) href else "$base/$href").substringBefore('#')
   val normalized = java.net.URI(null, null, "/$path", null).normalize().path.removePrefix("/")
-  if (sectionPrefix.isNotBlank() && !normalized.startsWith("$sectionPrefix/")) continue
-  val entry = zip.getEntry(normalized) ?: continue
+  if (sectionPrefix.startsWith("#s")) {
+   val (from, to) = volumeRange(sectionPrefix)
+   if (i < from || i > to) continue
+  } else if (sectionPrefix.isNotBlank() && !normalized.startsWith("$sectionPrefix/")) continue
+  val entry = zip.getEntry(normalized) ?: zip.getEntry(resolvePath(base, href)) ?: continue
   val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
   val body = Regex("<body\\b[^>]*>([\\s\\S]*?)</body>", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1) ?: html
   val clean = body.replace(Regex("<(script|style)\\b[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE), "")
-  val plain = Html.fromHtml(clean, Html.FROM_HTML_MODE_LEGACY).toString().replace("\\uFFFC", "").replace(Regex("[ \\t]+\\n"), "\\n").trim()
-  if (plain.isNotBlank()) result.add(Chapter("Section ${result.size + 1}", plain))
+  val cleaned = cleanSpanned(Html.fromHtml(clean, Html.FROM_HTML_MODE_LEGACY))
+  // Use the section's own heading as its title when it has one, instead of "Section N".
+  val heading = Regex("<h[1-3]\\b[^>]*>([\\s\\S]*?)</h[1-3]>", RegexOption.IGNORE_CASE).find(clean)
+   ?.groupValues?.get(1)?.let { Html.fromHtml(it, Html.FROM_HTML_MODE_LEGACY).toString().replace("\uFFFC", "").replace(Regex("\\s+"), " ").trim() }
+   ?.takeIf { it.isNotBlank() && it.length <= 60 }
+  if (cleaned.text.isNotBlank()) result.add(Chapter(heading ?: "Section ${result.size + 1}", cleaned.text, cleaned.spans))
  }
  if (result.isEmpty()) error("No readable chapters found in this EPUB")
  result
