@@ -282,7 +282,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
      books.forEach { book ->
       Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { openBook(book) }, onLongClick = { deleteCandidate = book }), shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
-       val metadata = remember(book.file.absolutePath) { readBookMetadata(book.file) }
+       val metadata = remember(book.file.absolutePath, book.sectionPrefix) { readVolumeMetadata(book) }
        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         if (metadata.cover != null) {
          Image(bitmap = metadata.cover.asImageBitmap(), contentDescription = "Cover of ${metadata.title}", contentScale = ContentScale.Crop, modifier = Modifier.width(76.dp).height(108.dp))
@@ -472,6 +472,32 @@ private fun readBookMetadata(file: File): BookMetadata = runCatching {
  }
 }.getOrElse { BookMetadata(file.name.substringAfter('_').removeSuffix(".epub").replace('_', ' '), "Unknown author", null) }
 
+/** Resolve a volume's own embedded cover without duplicating the collection EPUB. */
+private fun readVolumeMetadata(book: Book): BookMetadata {
+ val base = readBookMetadata(book.file)
+ if (book.sectionPrefix.isBlank()) return base
+ val cover = runCatching {
+  ZipFile(book.file).use { zip ->
+   val candidates = zip.entries().asSequence().filter { entry ->
+    !entry.isDirectory && entry.name.startsWith(book.sectionPrefix + "/") &&
+     entry.name.substringAfterLast('/').matches(Regex("(?i)cover(?:[0-9_\\-]*)?\\.(?:jpe?g|png|webp)")) &&
+     entry.size in 1..5_000_000L
+   }.sortedBy { it.name.length }.toList()
+   candidates.firstNotNullOfOrNull { entry ->
+    runCatching { zip.getInputStream(entry).use { stream ->
+     val bytes = stream.readBytes()
+     val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+     val scale = (maxOf(bounds.outWidth, bounds.outHeight) / 900).coerceAtLeast(1)
+     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+      android.graphics.BitmapFactory.Options().apply { inSampleSize = scale })
+    } }.getOrNull()
+   }
+  }
+ }.getOrNull()
+ return BookMetadata(book.title, base.author, cover ?: base.cover)
+}
+
 private fun scanBooks(dir: File): List<Book> = dir.listFiles()
  ?.filter { it.isFile && it.name.endsWith(".epub", true) }
  ?.sortedByDescending { it.lastModified() }
@@ -499,7 +525,7 @@ private fun scanBooks(dir: File): List<Book> = dir.listFiles()
      val label = nav.getElementsByTagNameNS("*", "text").item(0)?.textContent?.trim().orEmpty()
      if (label.isNotBlank() && !found.containsKey(prefix)) found[prefix] = label
     }
-    if (found.size in 2..40) found.map { (prefix, title) -> Book(file, title, prefix) } else emptyList()
+    if (found.size in 2..40) found.map { (prefix, title) -> Book(file, title.replace(Regex("(?i)\\s+anthology$"), "").trim(), prefix) } else emptyList()
    }
   }.getOrDefault(emptyList())
   parts.ifEmpty { listOf(Book(file, readBookMetadata(file).title)) }
