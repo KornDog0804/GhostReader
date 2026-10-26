@@ -73,6 +73,8 @@ private fun GhostApp() {
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
+ var backupBusy by remember { mutableStateOf(false) }
+ var backupStatus by remember { mutableStateOf("") }
  var torrentBusy by remember { mutableStateOf(false) }
  var torrentStatus by remember { mutableStateOf("") }
  val torrentWorker = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
@@ -107,6 +109,24 @@ private fun GhostApp() {
      torrentBusy = false
      torrentEngine = null
     }
+   }
+  }
+ }
+ val backupExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+  if (uri != null) {
+   backupBusy = true
+   torrentWorker.execute {
+    val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) }
+    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Saved $it books to your backup file" }.onFailure { error = "Backup failed: ${it.message}" } }
+   }
+  }
+ }
+ val backupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+  if (uri != null) {
+   backupBusy = true
+   torrentWorker.execute {
+    val result = runCatching { LibraryBackup.restore(ctx.applicationContext, uri) }
+    uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it books and reading settings" }.onFailure { error = "Restore failed: ${it.message}" } }
    }
   }
  }
@@ -159,6 +179,14 @@ private fun GhostApp() {
      }
      if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
     }
+    Spacer(Modifier.height(12.dp))
+    Text("LIBRARY BACKUP", color = violet, fontWeight = FontWeight.Bold)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+     OutlinedButton(enabled = !backupBusy, onClick = { backupExport.launch("GhostReader-Library.zip") }) { Text("Back up") }
+     OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Restore") }
+    }
+    Text("Save your EPUBs and reading progress to a file you control.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+    if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(12.dp))
     Text("THE BOOKSHELF  •  ${books.size} BOOKS", color = violet, fontWeight = FontWeight.Bold)
     Text("Covers and details are read from each EPUB", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
