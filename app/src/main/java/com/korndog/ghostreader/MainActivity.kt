@@ -52,7 +52,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 private val violet = Color(0xFFB784FF)
 private val dark = Color(0xFF0B0911)
 private data class Book(val file: File, val title: String)
-private data class Chapter(val title: String, val text: String)
+internal data class Chapter(val title: String, val text: String)
 
 class MainActivity : ComponentActivity() {
  override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,7 +163,7 @@ private fun GhostApp() {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+  Column(if (selected == null) Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp) else Modifier.fillMaxSize()) {
    if (selected == null) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
     Spacer(Modifier.height(18.dp))
@@ -230,74 +230,7 @@ private fun GhostApp() {
     }
    } else {
     val book = selected!!
-    Row(verticalAlignment = Alignment.CenterVertically) {
-     TextButton(onClick = { selected = null }) { Text("‹ SHELF") }
-     Text(book.title, color = violet, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-    }
-    if (chapters.isNotEmpty()) {
-     val current = chapters[chapterIndex]
-     Text("${chapterIndex + 1} / ${chapters.size}  •  ${current.title}", color = violet, style = MaterialTheme.typography.titleMedium)
-     Spacer(Modifier.height(12.dp))
-     val config = LocalConfiguration.current
-     val density = androidx.compose.ui.platform.LocalDensity.current
-     val measurer = rememberTextMeasurer()
-     val pageWidth = with(density) { (config.screenWidthDp.dp - 40.dp).roundToPx() }.coerceAtLeast(100)
-     val pageHeight = with(density) { (config.screenHeightDp.dp - 245.dp).roundToPx() }.coerceAtLeast(150)
-     val textStyle = TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp, color = Color(0xFFF3EDF9))
-     val pages = remember(current.text, pageWidth, pageHeight, fontSize) {
-      val result = mutableListOf<String>()
-      var pos = 0
-      val body = current.text
-      while (pos < body.length) {
-       var lo = pos + 1
-       var hi = body.length
-       var best = lo
-       while (lo <= hi) {
-        val mid = (lo + hi) ushr 1
-        val layout = measurer.measure(AnnotatedString(body.substring(pos, mid)), style = textStyle, constraints = Constraints(maxWidth = pageWidth))
-        if (layout.size.height <= pageHeight) { best = mid; lo = mid + 1 } else hi = mid - 1
-       }
-       val boundary = if (best < body.length) body.lastIndexOf(' ', best).takeIf { it > pos + (best - pos) / 2 } ?: best else best
-       result.add(body.substring(pos, boundary).trim())
-       pos = boundary
-       while (pos < body.length && body[pos].isWhitespace()) pos++
-      }
-      result.ifEmpty { listOf("") }
-     }
-     LaunchedEffect(chapterIndex, pages.size) { pageIndex = pageIndex.coerceIn(0, pages.lastIndex) }
-     fun movePage(direction: Int) {
-      if (direction > 0) {
-       if (pageIndex < pages.lastIndex) pageIndex++
-       else if (chapterIndex < chapters.lastIndex) { chapterIndex++; pageIndex = 0 }
-      } else {
-       if (pageIndex > 0) pageIndex--
-       else if (chapterIndex > 0) { chapterIndex--; pageIndex = 999999 }
-      }
-      prefs.edit().putInt(book.file.name, chapterIndex).putInt(book.file.name + "_page", pageIndex).apply()
-     }
-     var drag by remember { mutableFloatStateOf(0f) }
-     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-      TextButton(onClick = { fontSize = (fontSize - 2).coerceAtLeast(14f); prefs.edit().putFloat("fontSize", fontSize).apply(); pageIndex = 0 }) { Text("A−") }
-      TextButton(onClick = { fontSize = (fontSize + 2).coerceAtMost(30f); prefs.edit().putFloat("fontSize", fontSize).apply(); pageIndex = 0 }) { Text("A+") }
-     }
-     Box(Modifier.weight(1f).fillMaxWidth().pointerInput(chapterIndex, pageIndex, pages.size) {
-      detectHorizontalDragGestures(onDragEnd = {
-       if (drag > 70f) movePage(-1) else if (drag < -70f) movePage(1)
-       drag = 0f
-      }, onHorizontalDrag = { change, amount -> drag += amount; change.consume() })
-     }) {
-      Text(pages[pageIndex.coerceIn(0, pages.lastIndex)], style = textStyle)
-      Row(Modifier.fillMaxSize()) {
-       Box(Modifier.weight(1f).fillMaxHeight().clickable { movePage(-1) })
-       Box(Modifier.weight(1f).fillMaxHeight().clickable { movePage(1) })
-      }
-     }
-     Text("Page ${pageIndex.coerceIn(0, pages.lastIndex) + 1} of ${pages.size}  •  Chapter ${chapterIndex + 1} of ${chapters.size}", color = violet, style = MaterialTheme.typography.labelSmall)
-     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-      OutlinedButton(enabled = chapterIndex > 0 || pageIndex > 0, onClick = { movePage(-1) }) { Text("← Previous") }
-      Button(enabled = chapterIndex < chapters.lastIndex || pageIndex < pages.lastIndex, onClick = { movePage(1) }) { Text("Next →") }
-     }
-    }
+    ReaderScreen(title = book.title, chapters = chapters, prefs = prefs, bookKey = book.file.name, onClose = { selected = null })
    }
   }
  }
