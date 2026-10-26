@@ -75,6 +75,8 @@ internal object CoverStore {
         if (miss.exists() && System.currentTimeMillis() - miss.lastModified() < MISS_RETRY_MS) return null
         return try {
             val hasAuthor = author.isNotBlank() && !author.startsWith("Unknown")
+            // With no author to check, a short title ("Last Rites") matches the wrong book too easily.
+            if (!hasAuthor && title.trim().split(Regex("\\s+")).size < 3) error("ambiguous")
             // Try the full title, then the part before a subtitle, then without a "Book 2" tail.
             val tries = listOf(
                 title,

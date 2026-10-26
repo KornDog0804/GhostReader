@@ -432,7 +432,7 @@ internal fun LibraryScreen(
                 if (loaded != null) {
                     val b = all.count { it.audio == null }
                     val a = all.count { it.audio != null }
-                    Text("$b books  ·  $a audiobooks", color = Color(0xFF9B8DB0), fontSize = 12.sp)
+                    Text("$b ${if (b == 1) "book" else "books"}  ·  $a ${if (a == 1) "audiobook" else "audiobooks"}", color = Color(0xFF9B8DB0), fontSize = 12.sp)
                 }
             }
             Text(
