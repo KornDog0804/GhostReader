@@ -53,8 +53,18 @@ private fun audioMetadata(file: File): AudioMetadata {
 /** GhostReader listening room. Local playback with persistent position. */
 @Composable
 internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -> Unit, onClose: () -> Unit) {
- val meta = remember(file.absolutePath) { audioMetadata(file) }
+ val baseMeta = remember(file.absolutePath) { audioMetadata(file) }
  val context = LocalContext.current
+ // Title, author and cover the reader changed on the shelf apply here too.
+ val meta = remember(file.absolutePath) {
+  val saved = context.getSharedPreferences("reading", 0)
+  val pickedCover = CoverStore.overrideFile(context, file.name).takeIf { it.exists() }?.let { runCatching { decodeBitmap(it.readBytes(), 900) }.getOrNull() }
+  baseMeta.copy(
+   title = saved.getString("ov_title_" + file.name, null)?.takeIf { it.isNotBlank() } ?: baseMeta.title,
+   author = saved.getString("ov_author_" + file.name, null)?.takeIf { it.isNotBlank() } ?: baseMeta.author,
+   cover = pickedCover ?: baseMeta.cover
+  )
+ }
  androidx.activity.compose.BackHandler { onClose() }
  // No art inside the file: look the book up, the same way the library shelf does.
  var fetchedCover by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
