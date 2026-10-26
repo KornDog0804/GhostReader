@@ -1,7 +1,13 @@
 package com.korndog.ghostreader
 
 import android.media.MediaMetadataRetriever
-import android.media.MediaPlayer
+import android.content.ComponentName
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
@@ -48,7 +54,8 @@ private fun audioMetadata(file: File): AudioMetadata {
 @Composable
 internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -> Unit, onClose: () -> Unit) {
  val meta = remember(file.absolutePath) { audioMetadata(file) }
- var player by remember(file.absolutePath) { mutableStateOf<MediaPlayer?>(null) }
+ val context = LocalContext.current
+ var player by remember(file.absolutePath) { mutableStateOf<MediaController?>(null) }
  var playing by remember(file.absolutePath) { mutableStateOf(false) }
  var position by remember(file.absolutePath) { mutableIntStateOf(savedPosition) }
  var duration by remember(file.absolutePath) { mutableIntStateOf(0) }
@@ -57,21 +64,37 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
  var sleepMinutes by remember(file.absolutePath) { mutableIntStateOf(0) }
  var sleepUntil by remember(file.absolutePath) { mutableLongStateOf(0L) }
  DisposableEffect(file.absolutePath) {
-  val mp = MediaPlayer()
-  try {
-   mp.setDataSource(file.absolutePath)
-   mp.prepare()
-   duration = mp.duration.coerceAtLeast(0)
-   mp.seekTo(savedPosition.coerceIn(0, duration))
-   mp.setOnCompletionListener { playing = false; position = 0; onProgress(0) }
-   player = mp
-  } catch (e: Exception) { failure = e.message ?: "Cannot play this audio file"; mp.release() }
+  val token = SessionToken(context, ComponentName(context, GhostAudioService::class.java))
+  val future = MediaController.Builder(context, token).buildAsync()
+  var disposed = false
+  future.addListener({
+   if (!disposed) {
+    runCatching {
+     val controller = future.get()
+     val uri = android.net.Uri.fromFile(file)
+     val sameFile = controller.currentMediaItem?.localConfiguration?.uri == uri
+     if (!sameFile) {
+      controller.setMediaItem(MediaItem.Builder().setUri(uri).setMediaMetadata(
+       MediaMetadata.Builder().setTitle(meta.title).setArtist(meta.author).build()
+      ).build())
+      controller.prepare()
+      controller.seekTo(savedPosition.toLong().coerceAtLeast(0))
+     }
+     player = controller
+     duration = controller.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+     position = controller.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+     playing = controller.isPlaying
+    }.onFailure { failure = it.message ?: "Cannot connect to audio service" }
+   }
+  }, ContextCompat.getMainExecutor(context))
   val handler = Handler(Looper.getMainLooper())
   val tick = object : Runnable {
    override fun run() {
     player?.let { p ->
      runCatching {
-      position = p.currentPosition
+      position = p.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+      duration = p.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+      playing = p.isPlaying
       if (p.isPlaying) onProgress(position)
       if (sleepUntil > 0 && System.currentTimeMillis() >= sleepUntil) {
        p.pause()
@@ -87,8 +110,10 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
   }
   handler.post(tick)
   onDispose {
+   disposed = true
    handler.removeCallbacks(tick)
-   runCatching { player?.let { onProgress(it.currentPosition); it.release() } }
+   runCatching { player?.let { onProgress(it.currentPosition.toInt()) } }
+   MediaController.releaseFuture(future)
    player = null
   }
  }
@@ -120,7 +145,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
   Slider(
    value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1).toFloat()),
    onValueChange = { position = it.toInt() },
-   onValueChangeFinished = { player?.seekTo(position); onProgress(position) },
+   onValueChangeFinished = { player?.seekTo(position.toLong()); onProgress(position) },
    valueRange = 0f..duration.coerceAtLeast(1).toFloat(),
    enabled = player != null && duration > 0,
    modifier = Modifier.fillMaxWidth()
@@ -131,14 +156,14 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
   }
   Spacer(Modifier.height(18.dp))
   Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
-   OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition - 15000).coerceAtLeast(0); it.seekTo(position); onProgress(position) } }) { Text("↶ 15") }
+   OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition - 15000L).coerceAtLeast(0).toInt(); it.seekTo(position.toLong()); onProgress(position) } }) { Text("↶ 15") }
    Button(
     enabled = player != null,
     modifier = Modifier.size(width = 112.dp, height = 72.dp),
-    onClick = { player?.let { if (it.isPlaying) { it.pause(); playing = false; onProgress(it.currentPosition) } else { it.start(); playing = true } } },
+    onClick = { player?.let { if (it.isPlaying) { it.pause(); playing = false; onProgress(it.currentPosition.toInt()) } else { it.start(); playing = true } } },
     colors = ButtonDefaults.buttonColors(containerColor = purple)
    ) { Text(if (playing) "Ⅱ" else "▶", color = Color(0xFF170D20), fontSize = 28.sp) }
-   OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition + 30000).coerceAtMost(duration); it.seekTo(position); onProgress(position) } }) { Text("30 ↷") }
+   OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition + 30000L).coerceAtMost(duration.toLong()).toInt(); it.seekTo(position); onProgress(position) } }) { Text("30 ↷") }
   }
   Spacer(Modifier.height(24.dp))
   HorizontalDivider(color = Color(0xFF3D304B))
@@ -146,7 +171,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
    TextButton(onClick = {
     speed = when (speed) { 0.75f -> 1f; 1f -> 1.25f; 1.25f -> 1.5f; 1.5f -> 2f; else -> 0.75f }
-    runCatching { player?.playbackParams = player!!.playbackParams.setSpeed(speed) }
+    runCatching { player?.setPlaybackSpeed(speed) }
    }) { Text("${speed}× SPEED", color = purple) }
    TextButton(onClick = {
     sleepMinutes = when (sleepMinutes) { 0 -> 15; 15 -> 30; 30 -> 60; else -> 0 }
@@ -154,7 +179,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    }) { Text(if (sleepMinutes == 0) "☾ SLEEP TIMER" else "☾ ${sleepMinutes} MIN", color = purple) }
   }
   Spacer(Modifier.height(14.dp))
-  Text("Your listening position saves automatically", color = Color(0xFF9588A6), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+  Text("Background playback and lock-screen controls enabled", color = Color(0xFF9588A6), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
   Spacer(Modifier.height(30.dp))
  }
 }
