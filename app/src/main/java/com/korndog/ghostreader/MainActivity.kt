@@ -1,6 +1,11 @@
 package com.korndog.ghostreader
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import java.net.URL
+import java.net.HttpURLConnection
+import java.util.concurrent.Executors
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -53,6 +58,49 @@ private fun GhostApp() {
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
+ var downloading by remember { mutableStateOf(false) }
+ var downloadMessage by remember { mutableStateOf("") }
+ val worker = remember { Executors.newSingleThreadExecutor() }
+ val ui = remember { Handler(Looper.getMainLooper()) }
+ fun downloadBook(id: Int, title: String) {
+  if (downloading) return
+  downloading = true
+  downloadMessage = "Downloading $title..."
+  worker.execute {
+   var file: File? = null
+   try {
+    val url = URL("https://www.gutenberg.org/ebooks/$id.epub3.images")
+    val connection = url.openConnection() as HttpURLConnection
+    connection.connectTimeout = 15000
+    connection.readTimeout = 30000
+    connection.instanceFollowRedirects = true
+    try {
+     if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP ${connection.responseCode}")
+     if (connection.url.protocol != "https") throw IllegalStateException("Insecure redirect")
+     if (connection.contentLengthLong > 30_000_000L) throw IllegalStateException("Book too large")
+     file = File(shelf, "${System.currentTimeMillis()}_${title.replace(Regex("[^a-zA-Z0-9]"), "_")}.epub")
+     connection.inputStream.use { input ->
+      file!!.outputStream().use { output ->
+       val buf = ByteArray(8192)
+       var total = 0L
+       while (true) {
+        val n = input.read(buf)
+        if (n < 0) break
+        total += n
+        if (total > 30_000_000L) throw IllegalStateException("Book too large")
+        output.write(buf, 0, n)
+       }
+      }
+     }
+     parseEpub(file!!)
+     ui.post { books = scanBooks(shelf); downloadMessage = "$title added to your shelf"; downloading = false }
+    } finally { connection.disconnect() }
+   } catch (e: Exception) {
+    file?.delete()
+    ui.post { downloading = false; downloadMessage = ""; error = e.message ?: "Download failed" }
+   }
+  }
+ }
  val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
   if (uri != null) {
    try {
@@ -101,10 +149,11 @@ private fun GhostApp() {
      }) { Text("Open magnet") }
     }
     Spacer(Modifier.height(12.dp))
-    Text("FREE PUBLIC-DOMAIN BOOKS", color = violet, fontWeight = FontWeight.Bold)
-    TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gutenberg.org/ebooks/84"))) }) { Text("Frankenstein • Mary Shelley") }
-    TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gutenberg.org/ebooks/11"))) }) { Text("Alice’s Adventures in Wonderland • Lewis Carroll") }
-    TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gutenberg.org/ebooks/1342"))) }) { Text("Pride and Prejudice • Jane Austen") }
+    Text("FREE PUBLIC-DOMAIN BOOKS • DOWNLOAD INSIDE APP", color = violet, fontWeight = FontWeight.Bold)
+    TextButton(enabled = !downloading, onClick = { downloadBook(84, "Frankenstein") }) { Text("↓ Frankenstein • Mary Shelley") }
+    TextButton(enabled = !downloading, onClick = { downloadBook(11, "Alice's Adventures in Wonderland") }) { Text("↓ Alice’s Adventures in Wonderland • Lewis Carroll") }
+    TextButton(enabled = !downloading, onClick = { downloadBook(1342, "Pride and Prejudice") }) { Text("↓ Pride and Prejudice • Jane Austen") }
+    if (downloadMessage.isNotBlank()) Text(downloadMessage, color = Color.LightGray)
     Spacer(Modifier.height(16.dp))
     Text("MY SHELF  •  ${books.size} BOOKS", color = violet, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(8.dp))
