@@ -72,6 +72,7 @@ private fun GhostApp() {
  var selectedAudio by remember { mutableStateOf<File?>(null) }
  var audioFiles by remember { mutableStateOf(scanAudioFiles(File(ctx.filesDir, "audio").apply { mkdirs() })) }
  var deleteCandidate by remember { mutableStateOf<Book?>(null) }
+ var deleteAudioCandidate by remember { mutableStateOf<File?>(null) }
  var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
  var chapterIndex by remember { mutableIntStateOf(0) }
  var pageIndex by remember { mutableIntStateOf(0) }
@@ -247,7 +248,7 @@ private fun GhostApp() {
     if (audioFiles.isNotEmpty()) {
      Text("AUDIOBOOKS  •  ${audioFiles.size}", color = violet, fontWeight = FontWeight.Bold)
      audioFiles.forEach { file ->
-      Card(onClick = { selectedAudio = file }, colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+      Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onClick = { selectedAudio = file }, onLongClick = { deleteAudioCandidate = file })) {
        Column(Modifier.padding(16.dp)) {
         Text("🎧  " + file.name.substringAfter("_").substringBeforeLast("."), color = Color.White, fontWeight = FontWeight.Bold)
         Text("Listen or resume ›", color = violet)
@@ -361,6 +362,26 @@ private fun GhostApp() {
     }
    }
   }, confirmButton = { TextButton(onClick = { audioSelection?.complete(-1) }) { Text("Cancel") } })
+ }
+ if (deleteAudioCandidate != null) {
+  val file = deleteAudioCandidate!!
+  AlertDialog(
+   onDismissRequest = { deleteAudioCandidate = null },
+   title = { Text("Delete audiobook?") },
+   text = { Text("Remove ${file.name.substringAfter('_').substringBeforeLast('.').replace('_', ' ')} from this device? This also clears its saved listening position. Google Drive backups are not affected.") },
+   confirmButton = {
+    TextButton(onClick = {
+     if (file.delete()) {
+      prefs.edit().remove("audio_" + file.name).apply()
+      audioFiles = scanAudioFiles(File(ctx.filesDir, "audio"))
+     } else {
+      error = "Could not delete audiobook"
+     }
+     deleteAudioCandidate = null
+    }) { Text("Delete", color = Color(0xFFFF8080)) }
+   },
+   dismissButton = { TextButton(onClick = { deleteAudioCandidate = null }) { Text("Cancel") } }
+  )
  }
  if (deleteCandidate != null) {
   val candidate = deleteCandidate!!
