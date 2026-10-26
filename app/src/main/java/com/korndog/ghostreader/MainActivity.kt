@@ -51,7 +51,9 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 private val violet = Color(0xFFB784FF)
 private val dark = Color(0xFF0B0911)
-private data class Book(val file: File, val title: String)
+private data class Book(val file: File, val title: String, val sectionPrefix: String = "") {
+ val progressKey: String get() = file.name + if (sectionPrefix.isBlank()) "" else "::" + sectionPrefix
+}
 private data class Chapter(val title: String, val text: String)
 
 class MainActivity : ComponentActivity() {
@@ -207,10 +209,10 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  }
  fun openBook(book: Book) {
   try {
-   chapters = parseEpub(book.file)
+   chapters = parseEpub(book.file, book.sectionPrefix)
    selected = book
-   chapterIndex = prefs.getInt(book.file.name, 0).coerceIn(0, chapters.lastIndex)
-   pageIndex = prefs.getInt(book.file.name + "_page", 0)
+   chapterIndex = prefs.getInt(book.progressKey, 0).coerceIn(0, chapters.lastIndex)
+   pageIndex = prefs.getInt(book.progressKey + "_page", 0)
    error = null
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
@@ -288,11 +290,11 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
          Box(Modifier.width(76.dp).height(108.dp), contentAlignment = Alignment.Center) { Text("📖", style = MaterialTheme.typography.headlineLarge) }
         }
         Column(Modifier.weight(1f)) {
-         Text(metadata.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+         Text(book.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
          Spacer(Modifier.height(4.dp))
          Text(metadata.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
          Spacer(Modifier.height(10.dp))
-         Text(if (prefs.contains(book.file.name)) "Continue reading ›" else "Start reading ›", color = violet, style = MaterialTheme.typography.labelMedium)
+         Text(if (prefs.contains(book.progressKey)) "Continue reading ›" else "Start reading ›", color = violet, style = MaterialTheme.typography.labelMedium)
         }
        }
       }
@@ -344,7 +346,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        if (pageIndex > 0) pageIndex--
        else if (chapterIndex > 0) { chapterIndex--; pageIndex = 999999 }
       }
-      prefs.edit().putInt(book.file.name, chapterIndex).putInt(book.file.name + "_page", pageIndex).apply()
+      prefs.edit().putInt(book.progressKey, chapterIndex).putInt(book.progressKey + "_page", pageIndex).apply()
      }
      var drag by remember { mutableFloatStateOf(0f) }
      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -409,12 +411,15 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   AlertDialog(
    onDismissRequest = { deleteCandidate = null },
    title = { Text("Delete book?") },
-   text = { Text("Remove ${candidate.title} from this device? This also clears its saved reading position. Your external backup files are not affected.") },
+   text = { Text(if (candidate.sectionPrefix.isNotBlank()) "This title is part of a collection. Deleting it removes the entire EPUB and all ${books.count { it.file == candidate.file }} books in that collection from this device. Your external backups are not affected." else "Remove ${candidate.title} from this device? This also clears its saved reading position. Your external backup files are not affected.") },
    confirmButton = {
     TextButton(onClick = {
      val file = candidate.file
      if (file.delete()) {
-      prefs.edit().remove(file.name).remove(file.name + "_page").apply()
+      prefs.edit().apply {
+       books.filter { it.file == file }.forEach { remove(it.progressKey); remove(it.progressKey + "_page") }
+       remove(file.name); remove(file.name + "_page")
+      }.apply()
       books = scanBooks(shelf)
       if (selected?.file == file) selected = null
      } else error = "Couldn't delete this book"
@@ -467,11 +472,40 @@ private fun readBookMetadata(file: File): BookMetadata = runCatching {
  }
 }.getOrElse { BookMetadata(file.name.substringAfter('_').removeSuffix(".epub").replace('_', ' '), "Unknown author", null) }
 
-private fun scanBooks(dir: File): List<Book> = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".epub", true) }?.sortedByDescending { it.lastModified() }?.map {
- Book(it, readBookMetadata(it).title)
-} ?: emptyList()
+private fun scanBooks(dir: File): List<Book> = dir.listFiles()
+ ?.filter { it.isFile && it.name.endsWith(".epub", true) }
+ ?.sortedByDescending { it.lastModified() }
+ ?.flatMap { file ->
+  val parts = runCatching {
+   ZipFile(file).use { zip ->
+    val entry = zip.getEntry("toc.ncx") ?: return@use emptyList<Book>()
+    val factory = DocumentBuilderFactory.newInstance().apply {
+     isNamespaceAware = true
+     setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+     setFeature("http://xml.org/sax/features/external-general-entities", false)
+     setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+    }
+    val doc = zip.getInputStream(entry).use { factory.newDocumentBuilder().parse(it) }
+    val navs = doc.getElementsByTagNameNS("*", "navPoint")
+    val found = linkedMapOf<String, String>()
+    for (i in 0 until navs.length) {
+     val nav = navs.item(i) as? Element ?: continue
+     val parent = nav.parentNode as? Element ?: continue
+     if (parent.localName != "navPoint") continue
+     val content = nav.getElementsByTagNameNS("*", "content").item(0) as? Element ?: continue
+     val src = content.getAttribute("src").substringBefore('#')
+     val prefix = src.split('/').take(2).joinToString("/")
+     if (!Regex("^\\d+/\\d+$").matches(prefix)) continue
+     val label = nav.getElementsByTagNameNS("*", "text").item(0)?.textContent?.trim().orEmpty()
+     if (label.isNotBlank() && !found.containsKey(prefix)) found[prefix] = label
+    }
+    if (found.size in 2..40) found.map { (prefix, title) -> Book(file, title, prefix) } else emptyList()
+   }
+  }.getOrDefault(emptyList())
+  parts.ifEmpty { listOf(Book(file, readBookMetadata(file).title)) }
+ } ?: emptyList()
 
-private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
+private fun parseEpub(file: File, sectionPrefix: String = ""): List<Chapter> = ZipFile(file).use { zip ->
  fun xml(path: String) = zip.getEntry(path)?.let { entry ->
   zip.getInputStream(entry).use { stream -> DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true; runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }; runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }; runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) } }.newDocumentBuilder().apply { setEntityResolver { _, _ -> org.xml.sax.InputSource(java.io.StringReader("")) } }.parse(stream) }
  } ?: error("Missing EPUB file: $path")
@@ -494,6 +528,7 @@ private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
   val href = manifest[id] ?: continue
   val path = (if (base.isEmpty()) href else "$base/$href").substringBefore('#')
   val normalized = java.net.URI(null, null, "/$path", null).normalize().path.removePrefix("/")
+  if (sectionPrefix.isNotBlank() && !normalized.startsWith("$sectionPrefix/")) continue
   val entry = zip.getEntry(normalized) ?: continue
   val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
   val body = Regex("<body\\b[^>]*>([\\s\\S]*?)</body>", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1) ?: html
