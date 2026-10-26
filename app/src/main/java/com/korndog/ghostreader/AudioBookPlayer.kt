@@ -160,10 +160,10 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    Button(
     enabled = player != null,
     modifier = Modifier.size(width = 112.dp, height = 72.dp),
-    onClick = { player?.let { if (it.isPlaying) { it.pause(); playing = false; onProgress(it.currentPosition.toInt()) } else { it.start(); playing = true } } },
+    onClick = { player?.let { if (it.isPlaying) { it.pause(); playing = false; onProgress(it.currentPosition.toInt()) } else { it.play(); playing = true } } },
     colors = ButtonDefaults.buttonColors(containerColor = purple)
    ) { Text(if (playing) "Ⅱ" else "▶", color = Color(0xFF170D20), fontSize = 28.sp) }
-   OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition + 30000L).coerceAtMost(duration.toLong()).toInt(); it.seekTo(position); onProgress(position) } }) { Text("30 ↷") }
+   OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition + 30000L).coerceAtMost(duration.toLong()).toInt(); it.seekTo(position.toLong()); onProgress(position) } }) { Text("30 ↷") }
   }
   Spacer(Modifier.height(24.dp))
   HorizontalDivider(color = Color(0xFF3D304B))
