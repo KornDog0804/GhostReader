@@ -194,8 +194,8 @@ private fun GhostApp() {
     OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Magnet EPUB download (built in)") }
     if (showMagnet) {
      Spacer(Modifier.height(8.dp))
-     OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 120.dp), maxLines = 3, singleLine = false)
-     Text("Downloads an EPUB from a magnet into your shelf. Use authorized torrents.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+     OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().height(104.dp), maxLines = 3, singleLine = false)
+     Text("Long magnet links scroll inside the box. Tap Download EPUB below. Use authorized torrents.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else "Download EPUB") }
       if (torrentBusy) OutlinedButton(onClick = { torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
