@@ -50,7 +50,7 @@ class BookTorrentEngine(private val context: Context) {
    val safeName = File(relative).name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
    progress("Downloading $safeName...")
    // Select EPUB only; unrelated torrent files should not be downloaded.
-   th.prioritizeFiles(Array(info.numFiles()) { if (it == index) org.libtorrent4j.Priority.NORMAL else org.libtorrent4j.Priority.IGNORE })
+   th.prioritizeFiles(Array(info.numFiles()) { if (it == index) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE })
    th.resume()
    val deadline = System.currentTimeMillis() + 20 * 60_000L
    val offset = files.fileOffset(index)
