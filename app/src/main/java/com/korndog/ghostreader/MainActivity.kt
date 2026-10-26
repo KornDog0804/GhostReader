@@ -58,6 +58,43 @@ private fun GhostApp() {
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
+ var torrentBusy by remember { mutableStateOf(false) }
+ var torrentStatus by remember { mutableStateOf("") }
+ val torrentWorker = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
+ val uiHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+ var torrentEngine by remember { mutableStateOf<BookTorrentEngine?>(null) }
+ fun downloadMagnet() {
+  if (torrentBusy) return
+  if (!magnet.trim().startsWith("magnet:?xt=urn:btih:", true)) {
+   error = "Paste a complete magnet link, not an EPUB filename"
+   return
+  }
+  torrentBusy = true
+  val engine = BookTorrentEngine(ctx.applicationContext)
+  torrentEngine = engine
+  torrentWorker.execute {
+   var downloaded: File? = null
+   try {
+    downloaded = engine.download(magnet.trim(), shelf) { status ->
+     uiHandler.post { torrentStatus = status }
+    }
+    parseEpub(downloaded)
+    uiHandler.post {
+     books = scanBooks(shelf)
+     torrentStatus = "EPUB downloaded and added to your shelf"
+     torrentBusy = false
+     torrentEngine = null
+    }
+   } catch (e: Exception) {
+    downloaded?.delete()
+    uiHandler.post {
+     error = e.message ?: "Torrent download failed"
+     torrentBusy = false
+     torrentEngine = null
+    }
+   }
+  }
+ }
  var downloading by remember { mutableStateOf(false) }
  var downloadMessage by remember { mutableStateOf("") }
  val worker = remember { Executors.newSingleThreadExecutor() }
@@ -137,16 +174,16 @@ private fun GhostApp() {
     Spacer(Modifier.height(24.dp))
     Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }) { Text("＋ Import EPUB") }
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Magnet links (external torrent app)") }
+    OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Magnet EPUB download (built in)") }
     if (showMagnet) {
      Spacer(Modifier.height(8.dp))
      OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 120.dp), maxLines = 3, singleLine = false)
-     Text("Requires a separate torrent app. Download the EPUB there, then import it here.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-     Button(onClick = {
-      if (!magnet.startsWith("magnet:?xt=urn:btih:", true)) { error = "Enter a valid BitTorrent magnet link" }
-      else try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(magnet))) }
-      catch (e: Exception) { error = "No torrent app installed to open magnet links" }
-     }) { Text("Open magnet") }
+     Text("Downloads an EPUB from a magnet into your shelf. Use authorized torrents.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else "Download EPUB") }
+      if (torrentBusy) OutlinedButton(onClick = { torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
+     }
+     if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
     }
     Spacer(Modifier.height(12.dp))
     Text("FREE PUBLIC-DOMAIN BOOKS • DOWNLOAD INSIDE APP", color = violet, fontWeight = FontWeight.Bold)
