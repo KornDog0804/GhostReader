@@ -79,6 +79,9 @@ private fun GhostApp() {
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
+ var magnetMode by remember { mutableStateOf("epub") }
+ var audioChoices by remember { mutableStateOf<List<BookTorrentEngine.AudioOption>>(emptyList()) }
+ var audioSelection by remember { mutableStateOf<java.util.concurrent.CompletableFuture<Int>?>(null) }
  var showTools by remember { mutableStateOf(false) }
  var backupBusy by remember { mutableStateOf(false) }
  var backupStatus by remember { mutableStateOf("") }
@@ -99,13 +102,21 @@ private fun GhostApp() {
   torrentWorker.execute {
    var downloaded: File? = null
    try {
-    downloaded = engine.download(magnet.trim(), shelf) { status ->
-     uiHandler.post { torrentStatus = status }
+    if (magnetMode == "audio") {
+     val audioDir = File(ctx.filesDir, "audio").apply { mkdirs() }
+     downloaded = engine.downloadAudio(magnet.trim(), audioDir, { status -> uiHandler.post { torrentStatus = status } }, { options ->
+      val selection = java.util.concurrent.CompletableFuture<Int>()
+      uiHandler.post { audioChoices = options; audioSelection = selection }
+      try { selection.get(10, java.util.concurrent.TimeUnit.MINUTES) } finally { uiHandler.post { audioSelection = null; audioChoices = emptyList() } }
+     })
+    } else {
+     downloaded = engine.download(magnet.trim(), shelf) { status -> uiHandler.post { torrentStatus = status } }
+     parseEpub(downloaded!!)
     }
-    parseEpub(downloaded!!)
     uiHandler.post {
      books = scanBooks(shelf)
-     torrentStatus = "EPUB downloaded and added to your shelf"
+     audioFiles = scanAudioFiles(File(ctx.filesDir, "audio"))
+     torrentStatus = if (magnetMode == "audio") "Audiobook downloaded and added to your shelf" else "EPUB downloaded and added to your shelf"
      torrentBusy = false
      torrentEngine = null
     }
@@ -204,14 +215,18 @@ private fun GhostApp() {
     Spacer(Modifier.height(8.dp))
     Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }) { Text("＋ Import EPUB") }
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Magnet EPUB download (built in)") }
+    OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Download from magnet") }
     if (showMagnet) {
+     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      FilterChip(selected = magnetMode == "epub", onClick = { magnetMode = "epub" }, label = { Text("EPUB") })
+      FilterChip(selected = magnetMode == "audio", onClick = { magnetMode = "audio" }, label = { Text("Audiobook") })
+     }
      Spacer(Modifier.height(8.dp))
      OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().height(104.dp), maxLines = 3, singleLine = false)
-     Text("Long magnet links scroll inside the box. Tap Download EPUB below. Use authorized torrents.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+     Text("Long magnet links scroll inside the box. Download only files you are authorized to obtain.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else "Download EPUB") }
-      if (torrentBusy) OutlinedButton(onClick = { torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
+      Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else if (magnetMode == "audio") "Find audiobooks" else "Download EPUB") }
+      if (torrentBusy) OutlinedButton(onClick = { audioSelection?.complete(-1); torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
      }
      if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
     }
@@ -334,6 +349,18 @@ private fun GhostApp() {
     }
    }
   }
+ }
+ if (audioSelection != null && audioChoices.isNotEmpty()) {
+  AlertDialog(onDismissRequest = { audioSelection?.complete(-1) }, title = { Text("Choose audiobook") }, text = {
+   Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+    Text("Select one file to download. Larger audiobooks may need several GB of free storage.")
+    audioChoices.forEach { option ->
+     TextButton(onClick = { audioSelection?.complete(option.index) }, modifier = Modifier.fillMaxWidth()) {
+      Text("${option.name.substringAfterLast('/')}  •  ${option.bytes / 1_000_000} MB", maxLines = 2)
+     }
+    }
+   }
+  }, confirmButton = { TextButton(onClick = { audioSelection?.complete(-1) }) { Text("Cancel") } })
  }
  if (deleteCandidate != null) {
   val candidate = deleteCandidate!!
