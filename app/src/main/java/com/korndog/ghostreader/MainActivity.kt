@@ -69,6 +69,8 @@ private fun GhostApp() {
  val prefs = remember { ctx.getSharedPreferences("reading", 0) }
  var books by remember { mutableStateOf(scanBooks(shelf)) }
  var selected by remember { mutableStateOf<Book?>(null) }
+ var selectedAudio by remember { mutableStateOf<File?>(null) }
+ var audioFiles by remember { mutableStateOf(scanAudioFiles(File(ctx.filesDir, "audio").apply { mkdirs() })) }
  var deleteCandidate by remember { mutableStateOf<Book?>(null) }
  var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
  var chapterIndex by remember { mutableIntStateOf(0) }
@@ -135,6 +137,23 @@ private fun GhostApp() {
    }
   }
  }
+ val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+  if (uri != null) {
+   try {
+    val name = ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+     val index = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+     if (c.moveToFirst() && index >= 0) c.getString(index) else null
+    } ?: "audiobook.m4b"
+    val safe = name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
+    if (!safe.endsWith(".m4b", true) && !safe.endsWith(".mp3", true) && !safe.endsWith(".m4a", true)) error("Choose an M4B, MP3, or M4A file")
+    val folder = File(ctx.filesDir, "audio").apply { mkdirs() }
+    val target = File(folder, "${System.currentTimeMillis()}_$safe")
+    try { ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Could not open audio file") }
+    catch (e: Exception) { target.delete(); throw e }
+    audioFiles = scanAudioFiles(folder)
+   } catch (e: Exception) { error = e.message ?: "Could not import audiobook" }
+  }
+ }
  val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
   if (uri != null) {
    try {
@@ -164,7 +183,10 @@ private fun GhostApp() {
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
   Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
-   if (selected == null) {
+   if (selectedAudio != null) {
+    val file = selectedAudio!!
+    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
+   } else if (selected == null) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
     Spacer(Modifier.height(18.dp))
     Text("GHOSTREADER", style = MaterialTheme.typography.headlineLarge, color = violet, fontWeight = FontWeight.Black)
@@ -178,6 +200,7 @@ private fun GhostApp() {
     Spacer(Modifier.height(8.dp))
     if (showTools) {
     Text("IMPORT & DOWNLOAD", color = violet, fontWeight = FontWeight.Bold)
+    OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }) { Text("＋ Import audiobook") }
     Spacer(Modifier.height(8.dp))
     Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }) { Text("＋ Import EPUB") }
     Spacer(Modifier.height(8.dp))
@@ -205,7 +228,18 @@ private fun GhostApp() {
     Text("THE BOOKSHELF", color = violet, fontWeight = FontWeight.Bold)
     Text("Tap to read  •  Hold to manage", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(12.dp))
-    if (books.isEmpty()) Text("Your bookshelf is waiting. Import an EPUB or download an authorized book to see its cover, title, and author here.", color = Color.LightGray)
+    if (books.isEmpty() && audioFiles.isEmpty()) Text("Your bookshelf is waiting. Import an EPUB or download an authorized book to see its cover, title, and author here.", color = Color.LightGray)
+    if (audioFiles.isNotEmpty()) {
+     Text("AUDIOBOOKS  •  ${audioFiles.size}", color = violet, fontWeight = FontWeight.Bold)
+     audioFiles.forEach { file ->
+      Card(onClick = { selectedAudio = file }, colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+       Column(Modifier.padding(16.dp)) {
+        Text("🎧  " + file.name.substringAfter("_").substringBeforeLast("."), color = Color.White, fontWeight = FontWeight.Bold)
+        Text("Listen or resume ›", color = violet)
+       }
+      }
+     }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
      books.forEach { book ->
       Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { openBook(book) }, onLongClick = { deleteCandidate = book }), shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
@@ -401,3 +435,5 @@ private fun parseEpub(file: File): List<Chapter> = ZipFile(file).use { zip ->
  if (result.isEmpty()) error("No readable chapters found in this EPUB")
  result
 }
+
+private fun scanAudioFiles(dir: File): List<File> = dir.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") }?.sortedByDescending { it.lastModified() } ?: emptyList()
