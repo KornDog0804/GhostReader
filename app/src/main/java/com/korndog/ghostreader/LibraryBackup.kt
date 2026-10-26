@@ -87,6 +87,22 @@ internal object LibraryBackup {
         }
        }
        books[path.substringAfter('/').substringBefore('.')] = target
+      } else if (Regex("audio/[0-9]{4}\\.bin").matches(path)) {
+       if (audioFiles.size >= MAX_BOOKS) error("Too many audiobooks in backup")
+       val target = File(stage, "audio_" + path.substringAfter('/'))
+       target.outputStream().use { output ->
+        val buffer = ByteArray(32 * 1024)
+        while (true) {
+         val count = zip.read(buffer)
+         if (count < 0) break
+         total += count
+         if (total > LIMIT) error("Backup is too large")
+         output.write(buffer, 0, count)
+        }
+       }
+       audioFiles[path.substringAfter('/').substringBefore('.')] = target
+      } else if (Regex("audionames/[0-9]{4}\\.txt").matches(path)) {
+       audioNames[path.substringAfter('/').substringBefore('.')] = String(zip.readBytesLimited(1024), Charsets.UTF_8)
       } else if (Regex("names/[0-9]{4}\\.txt").matches(path)) {
        names[path.substringAfter('/').substringBefore('.')] = String(zip.readBytesLimited(1024), Charsets.UTF_8)
       }
