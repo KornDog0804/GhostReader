@@ -27,6 +27,7 @@ class GhostAudioService : MediaSessionService() {
   if (filename.isBlank()) return
   getSharedPreferences("reading", MODE_PRIVATE).edit()
    .putInt("audio_" + filename, position.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+   .putLong("ats_" + filename, System.currentTimeMillis())
    .commit()
  }
 

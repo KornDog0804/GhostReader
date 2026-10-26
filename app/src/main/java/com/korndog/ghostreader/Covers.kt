@@ -44,7 +44,7 @@ import kotlin.math.abs
 internal object CoverStore {
     private const val MISS_RETRY_MS = 3L * 24 * 60 * 60 * 1000
 
-    private fun folder(context: Context) = File(context.filesDir, "covers").apply { mkdirs() }
+    private fun folder(context: Context) = File(context.filesDir, "covers2").apply { mkdirs() }
 
     private fun key(title: String, author: String) =
         (title.trim().lowercase() + "|" + author.trim().lowercase()).hashCode().toUInt().toString(16)
@@ -61,6 +61,11 @@ internal object CoverStore {
             connection.disconnect()
         }
     }
+
+    private fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()
+
+    /** A cover the reader picked for this item, if any. */
+    fun overrideFile(context: Context, itemKey: String) = File(folder(context), "ov_" + itemKey.hashCode().toUInt().toString(16) + ".jpg")
 
     /** Blocking. Call from a background thread. */
     fun fetch(context: Context, title: String, author: String): Bitmap? {
@@ -82,11 +87,24 @@ internal object CoverStore {
                 for (withAuthor in if (hasAuthor) listOf(true, false) else listOf(false)) {
                     val query = "https://openlibrary.org/search.json?title=${URLEncoder.encode(t, "UTF-8")}" +
                         (if (withAuthor) "&author=${URLEncoder.encode(author, "UTF-8")}" else "") +
-                        "&limit=5&fields=cover_i"
+                        "&limit=8&fields=cover_i,title,author_name"
                     val docs = runCatching { JSONObject(String(get(query) ?: error("no result"))).getJSONArray("docs") }.getOrNull() ?: continue
                     for (i in 0 until docs.length()) {
-                        coverId = docs.getJSONObject(i).optLong("cover_i", 0L)
-                        if (coverId > 0) break
+                        val doc = docs.getJSONObject(i)
+                        val id = doc.optLong("cover_i", 0L)
+                        if (id <= 0) continue
+                        // Only accept a result whose title matches, and whose author matches when we know it.
+                        val found = norm(doc.optString("title"))
+                        val wanted = norm(t)
+                        if (found.isEmpty() || !(found == wanted || found.startsWith(wanted) || wanted.startsWith(found))) continue
+                        if (hasAuthor) {
+                            val last = norm(author).split(' ').lastOrNull().orEmpty()
+                            val names = doc.optJSONArray("author_name")
+                            val ok = names != null && (0 until names.length()).any { norm(names.optString(it)).contains(last) }
+                            if (last.isNotEmpty() && !ok) continue
+                        }
+                        coverId = id
+                        break
                     }
                     if (coverId > 0) break
                 }

@@ -95,6 +95,24 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
  var showHome by remember { mutableStateOf(true) }
+ var libRev by remember { mutableIntStateOf(0) }
+ var manage by remember { mutableStateOf<ShelfEntry?>(null) }
+ var editing by remember { mutableStateOf<ShelfEntry?>(null) }
+ var editTitle by remember { mutableStateOf("") }
+ var editAuthor by remember { mutableStateOf("") }
+ var coverTarget by remember { mutableStateOf<String?>(null) }
+ val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+  val key = coverTarget
+  coverTarget = null
+  if (uri != null && key != null) {
+   try {
+    val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IllegalStateException("Could not open image")
+    val bitmap = decodeBitmap(bytes, 900) ?: throw IllegalStateException("That image can't be used")
+    CoverStore.overrideFile(ctx, key).outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+    libRev++
+   } catch (e: Exception) { error = e.message ?: "Could not set cover" }
+  }
+ }
  var tab by remember { mutableIntStateOf(0) }
  var magnetMode by remember { mutableStateOf("epub") }
  LaunchedEffect(incomingMagnet) {
@@ -225,7 +243,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selectedAudio != null) {
     val file = selectedAudio!!
-    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
+    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).putLong("ats_" + file.name, System.currentTimeMillis()).apply() }, onClose = { selectedAudio = null })
    } else if (selected == null && showHome) {
     HomeSplash(onLibrary = { showHome = false; tab = 0 }, onAddBooks = { showHome = false; tab = 1 })
     BackHandler(enabled = false) {}
@@ -234,9 +252,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
       0 -> LibraryScreen(
-       books = books, audio = audioFiles,
-       onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
-       onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it }
+       books = books, audio = audioFiles, prefs = prefs, revision = libRev,
+       onOpenBook = { openBook(it) }, onOpenAudio = { selectedAudio = it },
+       onManage = { manage = it }
       )
       1 -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
@@ -295,6 +313,48 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     }
    }
   }, confirmButton = { TextButton(onClick = { audioSelection?.complete(-1) }) { Text("Cancel") } })
+ }
+ manage?.let { entry ->
+  AlertDialog(
+   onDismissRequest = { manage = null },
+   title = { Text(entry.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+   text = {
+    Column {
+     TextButton(onClick = { coverTarget = entry.key; manage = null; coverPicker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) { Text("Change cover", modifier = Modifier.fillMaxWidth()) }
+     TextButton(onClick = { editTitle = entry.title; editAuthor = entry.author; editing = entry; manage = null }, modifier = Modifier.fillMaxWidth()) { Text("Edit title and author", modifier = Modifier.fillMaxWidth()) }
+     TextButton(onClick = {
+      prefs.edit().remove("ov_title_" + entry.key).remove("ov_author_" + entry.key).apply()
+      CoverStore.overrideFile(ctx, entry.key).delete()
+      libRev++; manage = null
+     }, modifier = Modifier.fillMaxWidth()) { Text("Reset cover, title and author", modifier = Modifier.fillMaxWidth()) }
+     TextButton(onClick = {
+      entry.book?.let { deleteCandidate = it }
+      entry.audio?.let { deleteAudioCandidate = it }
+      manage = null
+     }, modifier = Modifier.fillMaxWidth()) { Text("Delete from this device", color = Color(0xFFFF8080), modifier = Modifier.fillMaxWidth()) }
+    }
+   },
+   confirmButton = { TextButton(onClick = { manage = null }) { Text("Close") } }
+  )
+ }
+ editing?.let { entry ->
+  AlertDialog(
+   onDismissRequest = { editing = null },
+   title = { Text("Edit details") },
+   text = {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+     OutlinedTextField(value = editTitle, onValueChange = { editTitle = it }, label = { Text("Title") }, singleLine = true)
+     OutlinedTextField(value = editAuthor, onValueChange = { editAuthor = it }, label = { Text("Author") }, singleLine = true)
+    }
+   },
+   confirmButton = {
+    TextButton(onClick = {
+     prefs.edit().putString("ov_title_" + entry.key, editTitle.trim()).putString("ov_author_" + entry.key, editAuthor.trim()).apply()
+     libRev++; editing = null
+    }) { Text("Save") }
+   },
+   dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } }
+  )
  }
  if (deleteAudioCandidate != null) {
   val file = deleteAudioCandidate!!

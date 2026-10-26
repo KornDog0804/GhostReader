@@ -258,7 +258,9 @@ internal fun ReaderScreen(
                     pageNumber = page + 1
                     pageCount = starts.size
                     pageEnd = starts.getOrElse(page + 1) { Int.MAX_VALUE }
-                    prefs.edit().putInt(bookKey, chapterIndex).putInt(bookKey + "_off", top).apply()
+                    val fraction = ((charsBefore[chapterIndex] + top).toFloat() / totalChars).coerceIn(0f, 1f)
+                    prefs.edit().putInt(bookKey, chapterIndex).putInt(bookKey + "_off", top)
+                        .putFloat(bookKey + "_pct", fraction).putLong(bookKey + "_ts", System.currentTimeMillis()).apply()
                 }
 
                 fun next() {
