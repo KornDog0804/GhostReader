@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextOverflow
 import org.w3c.dom.Element
 import java.io.File
 import java.util.zip.ZipFile
@@ -179,11 +181,12 @@ private fun GhostApp() {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  Column(Modifier.fillMaxSize().padding(20.dp)) {
+  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selected == null) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
     Spacer(Modifier.height(18.dp))
     Text("GHOSTREADER", style = MaterialTheme.typography.headlineLarge, color = violet, fontWeight = FontWeight.Black)
+    Text("THE READING ROOM", color = Color(0xFF9682AC), style = MaterialTheme.typography.labelSmall)
     Text("Your library. Your rules.", color = Color.LightGray)
     Spacer(Modifier.height(24.dp))
     Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }) { Text("＋ Import EPUB") }
@@ -211,7 +214,7 @@ private fun GhostApp() {
     if (books.isEmpty()) Text("Your shelf is empty. Import a DRM-free EPUB to start reading.", color = Color.LightGray)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
      books.forEach { book ->
-      Card(onClick = { openBook(book) }, colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
+      Card(onClick = { openBook(book) }, shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
        val metadata = remember(book.file.absolutePath) { readBookMetadata(book.file) }
        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         if (metadata.cover != null) {
@@ -220,9 +223,9 @@ private fun GhostApp() {
          Box(Modifier.width(76.dp).height(108.dp), contentAlignment = Alignment.Center) { Text("📖", style = MaterialTheme.typography.headlineLarge) }
         }
         Column(Modifier.weight(1f)) {
-         Text(metadata.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+         Text(metadata.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
          Spacer(Modifier.height(4.dp))
-         Text(metadata.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium)
+         Text(metadata.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
          Spacer(Modifier.height(10.dp))
          Text(if (prefs.contains(book.file.name)) "Continue reading ›" else "Start reading ›", color = violet, style = MaterialTheme.typography.labelMedium)
         }
@@ -235,7 +238,7 @@ private fun GhostApp() {
     val book = selected!!
     Row(verticalAlignment = Alignment.CenterVertically) {
      TextButton(onClick = { selected = null }) { Text("‹ SHELF") }
-     Text(book.title, color = violet, maxLines = 1, modifier = Modifier.weight(1f))
+     Text(book.title, color = violet, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
     }
     if (chapters.isNotEmpty()) {
      val current = chapters[chapterIndex]
