@@ -63,7 +63,7 @@ private fun GhostApp() {
     val safe = name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
     if (!safe.endsWith(".epub", true)) throw IllegalArgumentException("Choose an EPUB file")
     val target = File(shelf, "${System.currentTimeMillis()}_$safe")
-    try { ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Cannot open file") }
+    try { ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: throw IllegalStateException("Cannot open file") }
     catch (e: Exception) { target.delete(); throw e }
     // Validate before adding to the shelf.
     parseEpub(target)
