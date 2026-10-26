@@ -276,7 +276,7 @@ private fun readBookMetadata(file: File): BookMetadata = runCatching {
    }
    val builder = factory.newDocumentBuilder()
    builder.setEntityResolver { _, _ -> org.xml.sax.InputSource(java.io.StringReader("")) }
-   zip.getInputStream(entry).use { builder.parse(it) }
+   return zip.getInputStream(entry).use { builder.parse(it) }
   }
   val container = doc("META-INF/container.xml")
   val opfPath = (container.getElementsByTagNameNS("*", "rootfile").item(0) as Element).getAttribute("full-path")
