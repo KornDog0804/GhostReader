@@ -10,8 +10,25 @@ android {
   applicationId = "com.korndog.ghostreader"
   minSdk = 26
   targetSdk = 35
-  versionCode = 1
-  versionName = "0.1.0-dev"
+  versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
+  versionName = "0.2.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+ }
+ signingConfigs {
+  create("ghostreaderRelease") {
+   val storePath = System.getenv("GHOSTREADER_KEYSTORE_PATH")
+   if (!storePath.isNullOrBlank()) {
+    storeFile = file(storePath)
+    storePassword = System.getenv("GHOSTREADER_STORE_PASSWORD")
+    keyAlias = System.getenv("GHOSTREADER_KEY_ALIAS")
+    keyPassword = System.getenv("GHOSTREADER_KEY_PASSWORD")
+   }
+  }
+ }
+ buildTypes {
+  getByName("release") {
+   isMinifyEnabled = false
+   signingConfig = signingConfigs.getByName("ghostreaderRelease")
+  }
  }
  buildFeatures { compose = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
