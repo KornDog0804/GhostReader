@@ -93,6 +93,7 @@ private fun Pill(text: String, selected: Boolean, theme: ReaderTheme, onClick: (
 @Composable
 internal fun ReaderScreen(
     title: String,
+    author: String,
     chapters: List<Chapter>,
     prefs: SharedPreferences,
     bookKey: String,
@@ -109,6 +110,22 @@ internal fun ReaderScreen(
     var showToc by remember { mutableStateOf(false) }
     var pageNumber by remember { mutableIntStateOf(1) }
     var pageCount by remember { mutableIntStateOf(1) }
+    var pageEnd by remember { mutableIntStateOf(Int.MAX_VALUE) }
+    var tocTab by remember { mutableIntStateOf(0) }
+    var bookmarks by remember {
+        mutableStateOf(
+            prefs.getString(bookKey + "_bm", "").orEmpty().split(';').mapNotNull { item ->
+                val parts = item.split(':')
+                val c = parts.getOrNull(0)?.toIntOrNull()
+                val o = parts.getOrNull(1)?.toIntOrNull()
+                if (c != null && o != null && c in chapters.indices) c to o else null
+            }
+        )
+    }
+    fun saveBookmarks(list: List<Pair<Int, Int>>) {
+        bookmarks = list
+        prefs.edit().putString(bookKey + "_bm", list.joinToString(";") { "${it.first}:${it.second}" }).apply()
+    }
 
     val theme = readerThemes[themeIndex]
     val textStyle = TextStyle(
@@ -136,31 +153,50 @@ internal fun ReaderScreen(
 
     Box(Modifier.fillMaxSize().background(theme.bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            // Slim header: back, where you are, and the settings button.
+            // Header: back, title and author, bookmark this page, more settings.
+            val marked = bookmarks.any { it.first == chapterIndex && it.second >= offset && it.second < pageEnd }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(44.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(60.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "‹ Shelf",
+                    "←",
                     color = theme.accent,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClose() }.padding(8.dp)
+                    fontSize = 24.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onClose() }.padding(horizontal = 14.dp, vertical = 10.dp)
                 )
-                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = theme.text,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        if (author.isNotBlank() && !author.startsWith("Unknown")) author else displayTitle(chapters[chapterIndex]),
+                        color = theme.text.copy(alpha = 0.55f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
-                    displayTitle(chapters[chapterIndex]),
-                    color = theme.text.copy(alpha = 0.6f),
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "Aa",
+                    if (marked) "★" else "☆",
                     color = theme.accent,
+                    fontSize = 22.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
+                        if (marked) saveBookmarks(bookmarks.filterNot { it.first == chapterIndex && it.second >= offset && it.second < pageEnd })
+                        else saveBookmarks(bookmarks + (chapterIndex to offset))
+                    }.padding(horizontal = 12.dp, vertical = 10.dp)
+                )
+                Text(
+                    "⋮",
+                    color = theme.accent,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { showControls = !showControls }.padding(8.dp)
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { showControls = !showControls }.padding(horizontal = 14.dp, vertical = 10.dp)
                 )
             }
 
@@ -213,6 +249,7 @@ internal fun ReaderScreen(
                     if (offset != top) offset = top
                     pageNumber = page + 1
                     pageCount = starts.size
+                    pageEnd = starts.getOrElse(page + 1) { Int.MAX_VALUE }
                     prefs.edit().putInt(bookKey, chapterIndex).putInt(bookKey + "_off", top).apply()
                 }
 
@@ -288,6 +325,26 @@ internal fun ReaderScreen(
                     )
                 }
             }
+            // Bottom row: contents, text settings, theme, bookmarks.
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly) {
+                @Composable
+                fun Tool(glyph: String, onClick: () -> Unit) {
+                    Text(
+                        glyph,
+                        color = theme.accent,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 22.dp, vertical = 10.dp)
+                    )
+                }
+                Tool("☰") { tocTab = 0; showToc = true }
+                Tool("Aa") { showControls = !showControls }
+                Tool("◐") {
+                    themeIndex = (themeIndex + 1) % readerThemes.size
+                    prefs.edit().putInt("r_theme", themeIndex).apply()
+                }
+                Tool("★") { tocTab = 1; showToc = true }
+            }
         }
 
         if (showControls) {
@@ -362,20 +419,65 @@ internal fun ReaderScreen(
                     )
                     Pill("Close", false, theme) { showToc = false }
                 }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    Pill("Contents", tocTab == 0, theme) { tocTab = 0 }
+                    Pill("Bookmarks (${bookmarks.size})", tocTab == 1, theme) { tocTab = 1 }
+                }
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(Modifier.fillMaxSize()) {
-                    itemsIndexed(chapters) { index, chapter ->
-                        Text(
-                            "${index + 1}.  ${displayTitle(chapter)}",
-                            color = if (index == chapterIndex) theme.accent else theme.text,
-                            fontWeight = if (index == chapterIndex) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { chapterIndex = index; offset = 0; showToc = false }
-                                .padding(vertical = 12.dp)
-                        )
+                if (tocTab == 0) {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        itemsIndexed(chapters) { index, chapter ->
+                            Text(
+                                "${index + 1}.  ${displayTitle(chapter)}",
+                                color = if (index == chapterIndex) theme.accent else theme.text,
+                                fontWeight = if (index == chapterIndex) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { chapterIndex = index; offset = 0; showToc = false }
+                                    .padding(vertical = 12.dp)
+                            )
+                        }
+                    }
+                } else if (bookmarks.isEmpty()) {
+                    Text(
+                        "No bookmarks yet. Tap the star at the top of a page to save your place.",
+                        color = theme.text.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        itemsIndexed(bookmarks.sortedWith(compareBy({ it.first }, { it.second }))) { _, mark ->
+                            val chapter = chapters[mark.first]
+                            val percent = (mark.second * 100 / chapter.text.length.coerceAtLeast(1)).coerceIn(0, 100)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { chapterIndex = mark.first; offset = mark.second; showToc = false }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Chapter ${mark.first + 1}  •  ${displayTitle(chapter)}",
+                                        color = theme.text,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text("$percent% through the chapter", color = theme.text.copy(alpha = 0.55f), style = MaterialTheme.typography.labelSmall)
+                                }
+                                Text(
+                                    "✕",
+                                    color = theme.accent,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { saveBookmarks(bookmarks.filterNot { it == mark }) }
+                                        .padding(12.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }

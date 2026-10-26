@@ -41,7 +41,7 @@ internal fun volumeRange(prefix: String): Pair<Int, Int> {
     return (parts.getOrNull(0)?.toIntOrNull() ?: 0) to (parts.getOrNull(1)?.toIntOrNull() ?: Int.MAX_VALUE)
 }
 
-internal fun decodeBitmap(bytes: ByteArray, maxSide: Int = 900): Bitmap? {
+internal fun decodeBitmap(bytes: ByteArray, maxSide: Int = 500): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     val sample = (maxOf(bounds.outWidth, bounds.outHeight) / maxSide).coerceAtLeast(1)

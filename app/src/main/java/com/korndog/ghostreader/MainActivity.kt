@@ -13,6 +13,7 @@ import android.text.Html
 import android.util.Xml
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
@@ -51,7 +52,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 private val violet = Color(0xFFB784FF)
 private val dark = Color(0xFF0B0911)
-private data class Book(val file: File, val title: String, val sectionPrefix: String = "") {
+internal data class Book(val file: File, val title: String, val sectionPrefix: String = "") {
  val progressKey: String get() = file.name + if (sectionPrefix.isBlank()) "" else "::" + sectionPrefix
 }
 internal data class Chapter(val title: String, val text: String, val spans: List<TextSpan> = emptyList())
@@ -93,12 +94,16 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var error by remember { mutableStateOf<String?>(null) }
  var magnet by remember { mutableStateOf("") }
  var showMagnet by remember { mutableStateOf(false) }
+ var showHome by remember { mutableStateOf(true) }
+ var tab by remember { mutableIntStateOf(0) }
  var magnetMode by remember { mutableStateOf("epub") }
  LaunchedEffect(incomingMagnet) {
   if (!incomingMagnet.isNullOrBlank()) {
    magnet = incomingMagnet
    magnetMode = "audio"
    showMagnet = true
+   showHome = false
+   tab = 1
    selectedAudio = null
    selected = null
    onMagnetConsumed()
@@ -217,96 +222,65 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  Column(if (selected != null && selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+  Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selectedAudio != null) {
     val file = selectedAudio!!
     AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
+   } else if (selected == null && showHome) {
+    HomeSplash(onLibrary = { showHome = false; tab = 0 }, onAddBooks = { showHome = false; tab = 1 })
+    BackHandler(enabled = false) {}
    } else if (selected == null) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-    Spacer(Modifier.height(18.dp))
-    Text("GHOSTREADER", style = MaterialTheme.typography.headlineLarge, color = violet, fontWeight = FontWeight.Black)
-    Text("THE READING ROOM", color = Color(0xFF9682AC), style = MaterialTheme.typography.labelSmall)
-    Text("Your library. Your rules.", color = Color.LightGray)
-    Spacer(Modifier.height(20.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-     Text("YOUR BOOKS  •  ${books.size}", color = violet, fontWeight = FontWeight.Bold)
-     TextButton(onClick = { showTools = !showTools }) { Text(if (showTools) "Close tools ✕" else "Library tools ⚙") }
-    }
-    Spacer(Modifier.height(8.dp))
-    if (showTools) {
-    Text("IMPORT & DOWNLOAD", color = violet, fontWeight = FontWeight.Bold)
-    OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }) { Text("＋ Import audiobook") }
-    Spacer(Modifier.height(8.dp))
-    Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }) { Text("＋ Import EPUB") }
-    Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = { showMagnet = !showMagnet }) { Text("Download from magnet") }
-    if (showMagnet) {
-     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      FilterChip(selected = magnetMode == "epub", onClick = { magnetMode = "epub" }, label = { Text("EPUB") })
-      FilterChip(selected = magnetMode == "audio", onClick = { magnetMode = "audio" }, label = { Text("Audiobook") })
-     }
-     Spacer(Modifier.height(8.dp))
-     OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().height(104.dp), maxLines = 3, singleLine = false)
-     Text("Long magnet links scroll inside the box. Download only files you are authorized to obtain.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else if (magnetMode == "audio") "Find audiobooks" else "Download EPUB") }
-      if (torrentBusy) OutlinedButton(onClick = { audioSelection?.complete(-1); torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
-     }
-     if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
-    }
-    Spacer(Modifier.height(12.dp))
-    Text("SHARED LIBRARY  •  GOOGLE DRIVE", color = violet, fontWeight = FontWeight.Bold)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-     OutlinedButton(enabled = !backupBusy, onClick = { backupExport.launch("GhostReader-Library.zip") }) { Text("Save library") }
-     OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Load library") }
-    }
-    Text("Choose Google Drive in the Android file picker to save or load a portable ZIP of ebooks, audiobooks and progress. Manual transfer for now; automatic sync is not enabled.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-    if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
-    Spacer(Modifier.height(12.dp))
-    }
-    Text("THE BOOKSHELF", color = violet, fontWeight = FontWeight.Bold)
-    Text("Tap to read  •  Hold to manage", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-    Spacer(Modifier.height(12.dp))
-    if (books.isEmpty() && audioFiles.isEmpty()) Text("Your bookshelf is waiting. Import an EPUB or download an authorized book to see its cover, title, and author here.", color = Color.LightGray)
-    if (audioFiles.isNotEmpty()) {
-     Text("AUDIOBOOKS  •  ${audioFiles.size}", color = violet, fontWeight = FontWeight.Bold)
-     audioFiles.forEach { file ->
-      Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onClick = { selectedAudio = file }, onLongClick = { deleteAudioCandidate = file })) {
-       val info = remember(file.absolutePath, file.length(), file.lastModified()) { readShelfAudioMetadata(file) }
-       Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        ShelfCover(info.cover, info.title, info.author, Modifier.width(76.dp).height(108.dp))
-        Column(Modifier.weight(1f)) {
-         Text(info.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-         if (info.author.isNotBlank()) Text(info.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-         if (info.durationMs > 0) Text(formatShelfDuration(info.durationMs), color = Color(0xFFAC9ABD), style = MaterialTheme.typography.bodySmall)
-         Spacer(Modifier.height(8.dp))
-         Text("Listen or resume ›", color = violet)
+    BackHandler { showHome = true }
+    Box(Modifier.weight(1f).fillMaxWidth()) {
+     when (tab) {
+      0 -> LibraryScreen(
+       books = books, audio = audioFiles,
+       onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
+       onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it }
+      )
+      1 -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
+       Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+       Text("Add books and audiobooks you own.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+       Spacer(Modifier.height(16.dp))
+       Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import EPUB") }
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import audiobook") }
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(onClick = { showMagnet = !showMagnet }, modifier = Modifier.fillMaxWidth()) { Text("Download from magnet") }
+       if (showMagnet) {
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+         FilterChip(selected = magnetMode == "epub", onClick = { magnetMode = "epub" }, label = { Text("EPUB") })
+         FilterChip(selected = magnetMode == "audio", onClick = { magnetMode = "audio" }, label = { Text("Audiobook") })
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().height(104.dp), maxLines = 3, singleLine = false)
+        Text("Long magnet links scroll inside the box. Download only files you are authorized to obtain.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+         Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else if (magnetMode == "audio") "Find audiobooks" else "Download EPUB") }
+         if (torrentBusy) OutlinedButton(onClick = { audioSelection?.complete(-1); torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
+        }
+        if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
        }
+      }
+      else -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
+       Text("Settings", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+       Spacer(Modifier.height(16.dp))
+       Text("SHARED LIBRARY  •  GOOGLE DRIVE", color = violet, fontWeight = FontWeight.Bold)
+       Spacer(Modifier.height(8.dp))
+       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(enabled = !backupBusy, onClick = { backupExport.launch("GhostReader-Library.zip") }) { Text("Save library") }
+        OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Load library") }
+       }
+       Text("Choose Google Drive in the Android file picker to save or load a portable ZIP of ebooks, audiobooks and progress. Manual transfer for now; automatic sync is not enabled.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+       if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
       }
      }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-     books.forEach { book ->
-      Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { openBook(book) }, onLongClick = { deleteCandidate = book }), shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))) {
-       val metadata = remember(book.file.absolutePath, book.sectionPrefix) { readVolumeMetadata(book) }
-       Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        ShelfCover(metadata.cover, book.title, metadata.author, Modifier.width(76.dp).height(108.dp))
-        Column(Modifier.weight(1f)) {
-         Text(book.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-         Spacer(Modifier.height(4.dp))
-         Text(metadata.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-         Spacer(Modifier.height(10.dp))
-         Text(if (prefs.contains(book.progressKey)) "Continue reading ›" else "Start reading ›", color = violet, style = MaterialTheme.typography.labelMedium)
-        }
-       }
-      }
-     }
-    }
-    }
+    ShellNav(selected = tab, onSelect = { tab = it })
    } else {
     val book = selected!!
-    ReaderScreen(title = book.title, chapters = chapters, prefs = prefs, bookKey = book.progressKey, onClose = { selected = null })
+    ReaderScreen(title = book.title, author = runCatching { readVolumeMetadata(book).author }.getOrDefault(""), chapters = chapters, prefs = prefs, bookKey = book.progressKey, onClose = { selected = null })
    }
   }
  }
@@ -368,14 +342,14 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  if (error != null) AlertDialog(onDismissRequest = { error = null }, title = { Text("GhostReader") }, text = { Text(error!!) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } })
 }
 
-private data class ShelfAudioMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?, val durationMs: Long)
+internal data class ShelfAudioMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?, val durationMs: Long)
 
-private fun formatShelfDuration(ms: Long): String {
+internal fun formatShelfDuration(ms: Long): String {
  val minutes = ms.coerceAtLeast(0) / 60000
  return "${minutes / 60} hr ${minutes % 60} min"
 }
 
-private fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
+internal fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
  val fallback = file.nameWithoutExtension.replace(Regex("^\\d+_"), "").replace('_', ' ').replace(Regex("\\s+"), " ").trim()
  val retriever = android.media.MediaMetadataRetriever()
  return try {
@@ -398,9 +372,9 @@ private fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
  } finally { runCatching { retriever.release() } }
 }
 
-private data class BookMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?)
+internal data class BookMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?)
 
-private fun readBookMetadata(file: File): BookMetadata = runCatching {
+internal fun readBookMetadata(file: File): BookMetadata = runCatching {
  ZipFile(file).use { zip ->
   fun doc(path: String): org.w3c.dom.Document {
    val entry = zip.getEntry(path) ?: error("Missing metadata")
@@ -439,7 +413,7 @@ private fun readBookMetadata(file: File): BookMetadata = runCatching {
 }.getOrElse { BookMetadata(file.name.substringAfter('_').removeSuffix(".epub").replace('_', ' '), "Unknown author", null) }
 
 /** Resolve a volume's own embedded cover without duplicating the collection EPUB. */
-private fun readVolumeMetadata(book: Book): BookMetadata {
+internal fun readVolumeMetadata(book: Book): BookMetadata {
  val base = readBookMetadata(book.file)
  if (book.sectionPrefix.isBlank()) return base
  if (book.sectionPrefix.startsWith("#s")) return BookMetadata(book.title, base.author, volumeCover(book.file, book.sectionPrefix))
