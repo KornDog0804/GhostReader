@@ -272,9 +272,20 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
      Text("AUDIOBOOKS  •  ${audioFiles.size}", color = violet, fontWeight = FontWeight.Bold)
      audioFiles.forEach { file ->
       Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onClick = { selectedAudio = file }, onLongClick = { deleteAudioCandidate = file })) {
-       Column(Modifier.padding(16.dp)) {
-        Text("🎧  " + file.name.substringAfter("_").substringBeforeLast("."), color = Color.White, fontWeight = FontWeight.Bold)
-        Text("Listen or resume ›", color = violet)
+       val info = remember(file.absolutePath, file.length(), file.lastModified()) { readShelfAudioMetadata(file) }
+       Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (info.cover != null) {
+         Image(bitmap = info.cover.asImageBitmap(), contentDescription = "Cover of ${info.title}", contentScale = ContentScale.Crop, modifier = Modifier.width(76.dp).height(108.dp))
+        } else {
+         Box(Modifier.width(76.dp).height(108.dp), contentAlignment = Alignment.Center) { Text("🎧", style = MaterialTheme.typography.headlineLarge) }
+        }
+        Column(Modifier.weight(1f)) {
+         Text(info.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+         if (info.author.isNotBlank()) Text(info.author, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+         if (info.durationMs > 0) Text(formatShelfDuration(info.durationMs), color = Color(0xFFAC9ABD), style = MaterialTheme.typography.bodySmall)
+         Spacer(Modifier.height(8.dp))
+         Text("Listen or resume ›", color = violet)
+        }
        }
       }
      }
@@ -430,6 +441,36 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   )
  }
  if (error != null) AlertDialog(onDismissRequest = { error = null }, title = { Text("GhostReader") }, text = { Text(error!!) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } })
+}
+
+private data class ShelfAudioMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?, val durationMs: Long)
+
+private fun formatShelfDuration(ms: Long): String {
+ val minutes = ms.coerceAtLeast(0) / 60000
+ return "${minutes / 60} hr ${minutes % 60} min"
+}
+
+private fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
+ val fallback = file.nameWithoutExtension.replace(Regex("^\\d+_"), "").replace('_', ' ').replace(Regex("\\s+"), " ").trim()
+ val retriever = android.media.MediaMetadataRetriever()
+ return try {
+  retriever.setDataSource(file.absolutePath)
+  fun field(key: Int) = retriever.extractMetadata(key)?.trim().orEmpty()
+  val title = field(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE).ifBlank { fallback }
+  val author = field(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST)
+   .ifBlank { field(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST) }
+   .ifBlank { field(android.media.MediaMetadataRetriever.METADATA_KEY_AUTHOR) }
+  val duration = field(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION).toLongOrNull() ?: 0L
+  val cover = retriever.embeddedPicture?.takeIf { it.size in 1..5_000_000 }?.let { bytes ->
+   val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+   android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+   val sample = (maxOf(bounds.outWidth, bounds.outHeight) / 800).coerceAtLeast(1)
+   android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+  }
+  ShelfAudioMetadata(title, author, cover, duration)
+ } catch (_: Exception) {
+  ShelfAudioMetadata(fallback, "", null, 0)
+ } finally { runCatching { retriever.release() } }
 }
 
 private data class BookMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?)
