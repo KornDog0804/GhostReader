@@ -119,7 +119,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
   onDispose {
    disposed = true
    handler.removeCallbacks(tick)
-   runCatching { player?.let { onProgress(it.currentPosition.toInt()) } }
+   runCatching { player?.let { if (it.playbackState == androidx.media3.common.Player.STATE_READY) onProgress(it.currentPosition.toInt()) } }
    MediaController.releaseFuture(future)
    player = null
   }
