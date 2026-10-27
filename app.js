@@ -1,5 +1,6 @@
 import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
+import { PageEngine } from "./page-engine.js";
 import * as DB from "./db.js";
 import { parseName, fetchCover } from "./covers.js";
 
@@ -20,7 +21,7 @@ function progressOf(kind, id) { return LS.get(`gr:${kind}:${id}`, null); }
 
 function posterHtml(item, kind, url) {
   const hue = [...(item.title || "x")].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
-  const art = url ? `<img src="${url}" alt="">` : `<div class="gen" style="background:linear-gradient(160deg,hsl(${hue} 55% 38%),hsl(${(hue + 40) % 360} 70% 14%))">${esc(item.title)}<small>${esc(item.author)}</small></div>`;
+  const art = url ? `<img src="${url}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><div class="gen" hidden>${esc(item.title)}</div>` : `<div class="gen" style="background:linear-gradient(160deg,hsl(${hue} 55% 38%),hsl(${(hue + 40) % 360} 70% 14%))">${esc(item.title)}<small>${esc(item.author)}</small></div>`;
   const p = progressOf(kind, item.id);
   const frac = kind === "b" ? (p?.o ?? 0) : kind === "c" ? (p?.o ?? 0) : p?.d ? Math.min(1, (p.t || 0) / p.d) : 0;
   const badge = kind === "a" ? '<span class="badge">🎧 Audio</span>' : "";
@@ -178,6 +179,7 @@ const saveSettings = () => LS.set("gr:settings", settings);
 
 let R = null; // current reader state: {epub,id,ci,page,pages,step}
 const frame = $("#page");
+const pager = new PageEngine(frame);
 
 function applyChrome() {
   const t = THEMES[settings.theme];
@@ -204,64 +206,31 @@ async function openBook(id) {
   await showChapter(R.ci, { frac: saved.f || 0 });
 }
 
-function layoutCss() {
-  const t = THEMES[settings.theme];
-  const W = frame.clientWidth, H = frame.clientHeight;
-  const m = Math.min(settings.margin, Math.max(16, W / 6)), vert = 64;
-  // Each column is exactly one viewport wide including its margins.
-  // Safari needs a definite body width/height for horizontal CSS columns.
-  const colW = W - 2 * m;
-  const gap = 2 * m;
-  R.step = W;
-  const fam = settings.font === "serif" ? "Georgia,'Times New Roman',serif" : "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
-  return `html{overflow:hidden;background:${t.bg}}
-body{margin:0!important;padding:${vert}px ${m}px!important;width:${W}px!important;height:${H}px!important;box-sizing:border-box;column-width:${colW}px;column-gap:${gap}px;column-fill:auto;overflow:visible!important;
-  background:${t.bg}!important;color:${t.ink}!important;font-family:${fam}!important;font-size:${settings.size}px!important;line-height:${settings.spacing}!important;text-align:left;hyphens:auto;word-break:break-word}
-body *{color:inherit!important;background:transparent!important;font-family:inherit!important;max-width:100%}
-p,li,div,span,blockquote{font-size:inherit!important;line-height:inherit!important}
-h1,h2,h3{line-height:1.25!important;break-after:avoid}h1{font-size:1.6em!important}h2{font-size:1.35em!important}h3{font-size:1.15em!important}
-a{color:${t.link}!important;text-decoration:none}
-img,svg{max-width:100%!important;max-height:${H - 2 * vert - 8}px!important;height:auto;object-fit:contain;break-inside:avoid;display:block;margin:.6em auto}
-p{margin:0 0 .7em}`;
-}
-
 async function showChapter(ci, { frac = 0, end = false } = {}) {
-  const { epub } = R;
-  ci = Math.max(0, Math.min(epub.spine.length - 1, ci));
-  R.ci = ci;
+  if (!R) return;
+  const state = R;
+  const {epub} = state;
+  ci = Math.max(0,Math.min(epub.spine.length-1,ci));
   const ch = await epub.chapterHtml(ci);
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${ch.css.replace(/<\/style/gi, "")}</style><style>${layoutCss()}</style></head><body>${ch.body}</body></html>`;
-  await new Promise((res) => { frame.onload = res; frame.srcdoc = html; });
-  const doc = frame.contentDocument;
-  await Promise.all([...doc.images].map((i) => (i.decode ? i.decode().catch(() => {}) : null)));
-  doc.addEventListener("click", (e) => {
-    const a = e.target.closest?.("a[data-epub]");
-    if (a) { e.preventDefault(); const [p] = a.dataset.epub.split("#"); const i = epub.chapterIndexForPath(p); if (i >= 0) showChapter(i); return; }
-    const x = e.clientX / frame.clientWidth;
-    if (x < 0.28) turn(-1); else if (x > 0.72) turn(1); else toggleChrome();
-  });
-  let sx = 0, sy = 0;
-  doc.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
-  doc.addEventListener("touchend", (e) => { const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) turn(dx < 0 ? 1 : -1); }, { passive: true });
-  R.pages = Math.max(1, Math.ceil((Math.max(doc.body.scrollWidth, doc.documentElement.scrollWidth) - 1) / R.step));
-  R.page = end ? R.pages - 1 : Math.min(R.pages - 1, Math.floor(frac * R.pages));
-  seek();
+  if (R !== state) return;
+  const t = THEMES[settings.theme];
+  await pager.load(ch.body, ch.css, {
+    width:frame.clientWidth,height:frame.clientHeight,margin:Math.min(settings.margin,64),
+    font:settings.font,size:settings.size,spacing:settings.spacing,theme:t
+  }, end ? 1 : frac);
+  if (R !== state) return;
+  R.ci=ci; R.pages=pager.count; R.page=pager.index; updateProgress();
 }
 function seek() {
-  const doc = frame.contentDocument;
-  const x = R.page * R.step;
-  // Transforming the column container is reliable on iPad Safari,
-  // unlike scrolling a sandboxed srcdoc iframe with overflow:hidden.
-  doc.body.style.transform = `translate3d(${-x}px,0,0)`;
-  doc.body.style.transformOrigin = "top left";
-  updateProgress();
+  if(!R)return;
+  pager.index=Math.max(0,Math.min(pager.count-1,R.page));
+  pager.show();updateProgress();
 }
 function turn(d) {
-  if (!R) return;
-  const p = R.page + d;
-  if (p < 0) { if (R.ci > 0) showChapter(R.ci - 1, { end: true }); return; }
-  if (p >= R.pages) { if (R.ci < R.epub.spine.length - 1) showChapter(R.ci + 1); return; }
-  R.page = p; seek();
+  if(!R)return;
+  if(pager.turn(d)){R.page=pager.index;updateProgress();return;}
+  if(d<0&&R.ci>0)showChapter(R.ci-1,{end:true});
+  else if(d>0&&R.ci<R.epub.spine.length-1)showChapter(R.ci+1);
 }
 function overall() { return Math.min(1, (R.ci + R.page / R.pages) / R.epub.spine.length) ; }
 function updateProgress() {
@@ -286,7 +255,7 @@ $("#rslide").addEventListener("change", (e) => {
   const v = Number(e.target.value) / 1000 * R.epub.spine.length;
   showChapter(Math.floor(v), { frac: v - Math.floor(v) });
 });
-$("#rback").addEventListener("click", () => { R?.epub.destroy(); R = null; frame.srcdoc = ""; $("#reader").hidden = true; $("#library").hidden = false; document.querySelector('meta[name="theme-color"]').content = "#0a0614"; renderLibrary(); });
+$("#rback").addEventListener("click", () => { R?.epub.destroy(); R = null; pager.serial++; frame.srcdoc = ""; $("#reader").hidden = true; $("#library").hidden = false; document.querySelector('meta[name="theme-color"]').content = "#0a0614"; renderLibrary(); });
 addEventListener("keydown", (e) => {
   if ($("#reader").hidden) return;
   if (e.key === "ArrowRight" || e.key === " ") turn(1); else if (e.key === "ArrowLeft") turn(-1);
