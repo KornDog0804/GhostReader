@@ -245,14 +245,31 @@ function updateProgress() {
 const toggleChrome = () => $("#reader").classList.toggle("chromeoff");
 // Transparent page-turn zones sit above the EPUB iframe on iPad Safari.
 // Without handlers they swallow taps, leaving the book stuck on its first page.
-$("#tapL").addEventListener("click", () => turn(-1));
-$("#tapR").addEventListener("click", () => turn(1));
-$("#tapM").addEventListener("click", toggleChrome);
-$("#rprev").addEventListener("click", () => turn(-1));
-$("#rnext").addEventListener("click", () => turn(1));
-let touchStart = null;
-$("#stage").addEventListener("touchstart", e => { if(e.touches.length === 1) touchStart = {x:e.touches[0].clientX,y:e.touches[0].clientY}; }, {passive:true});
-$("#stage").addEventListener("touchend", e => { if(!touchStart) return; const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y; touchStart=null; if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)*1.2) turn(dx<0?1:-1); }, {passive:true});
+// A dedicated overlay receives pointer gestures above the EPUB iframe.
+// Safari does not reliably bubble touch events out of an iframe.
+let gestureStart = null;
+let suppressTapUntil = 0;
+const gestureLayer = $("#stage");
+gestureLayer.addEventListener("pointerdown", e => {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  gestureStart = {x:e.clientX,y:e.clientY,id:e.pointerId};
+}, {passive:true});
+gestureLayer.addEventListener("pointerup", e => {
+  if (!gestureStart || e.pointerId !== gestureStart.id) return;
+  const dx=e.clientX-gestureStart.x,dy=e.clientY-gestureStart.y;
+  gestureStart=null;
+  if(Math.abs(dx)>=40 && Math.abs(dx)>Math.abs(dy)*1.2){
+    suppressTapUntil=Date.now()+500;
+    turn(dx<0?1:-1);
+  }
+}, {passive:true});
+gestureLayer.addEventListener("pointercancel",()=>{gestureStart=null;});
+for(const [id,dir] of [["#tapL",-1],["#tapR",1]]){
+  $(id).addEventListener("click",()=>{if(Date.now()>suppressTapUntil)turn(dir);});
+}
+$("#tapM").addEventListener("click",()=>{if(Date.now()>suppressTapUntil)toggleChrome();});
+$("#rprev").addEventListener("click",()=>turn(-1));
+$("#rnext").addEventListener("click",()=>turn(1));
 $("#rslide").addEventListener("change", (e) => {
   const v = Number(e.target.value) / 1000 * R.epub.spine.length;
   showChapter(Math.floor(v), { frac: v - Math.floor(v) });
