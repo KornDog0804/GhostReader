@@ -1,9 +1,12 @@
 // Tiny IndexedDB wrapper: books and audiobooks live on the device so the app works offline.
 const open = () => new Promise((res, rej) => {
-  const r = indexedDB.open("ghostreader", 1);
+  const r = indexedDB.open("ghostreader", 2);
   r.onupgradeneeded = () => {
-    r.result.createObjectStore("books", { keyPath: "id", autoIncrement: true });
-    r.result.createObjectStore("audio", { keyPath: "id", autoIncrement: true });
+    const names = r.result.objectStoreNames;
+    if (!names.contains("books")) r.result.createObjectStore("books", { keyPath: "id", autoIncrement: true });
+    if (!names.contains("audio")) r.result.createObjectStore("audio", { keyPath: "id", autoIncrement: true });
+    // Covers are kept as plain data (not Blobs) so Safari can never lose them.
+    if (!names.contains("covers")) r.result.createObjectStore("covers", { keyPath: "key" });
   };
   r.onsuccess = () => res(r.result);
   r.onerror = () => rej(r.error);

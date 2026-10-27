@@ -20,6 +20,26 @@ const setStatus = (t) => { const el = $("#status"); el.textContent = t; el.hidde
 /* ---------------- library ---------------- */
 function progressOf(kind, id) { return LS.get(`gr:${kind}:${id}`, null); }
 
+// Covers are cached as data URLs in their own store. Safari can drop or invalidate Blob
+// URLs for blobs read back out of IndexedDB, which made artwork vanish.
+const blobToDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
+async function coverSrc(it, store) {
+  const key = `${store}:${it.id}`;
+  try {
+    const cached = await DB.get("covers", key);
+    if (cached && cached.data && (!it.cover || cached.size === it.cover.size)) return cached.data;
+  } catch {}
+  let blob = it.cover;
+  let data = null;
+  if (blob) { try { data = await blobToDataUrl(blob); } catch {} }
+  if ((!data || data.length < 200) && store === "books" && it.blob && it.format !== "cbz" && it.format !== "pdf") {
+    try { const ep = await Epub.open(it.blob); blob = await ep.cover(); ep.destroy(); if (blob && blob.size) data = await blobToDataUrl(blob); } catch {}
+  }
+  if (!data || data.length < 200) return null;
+  try { await DB.put("covers", { key, size: blob.size, data }); } catch {}
+  return data;
+}
+
 function posterHtml(item, kind, url) {
   const hue = [...(item.title || "x")].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   const art = url ? `<img src="${url}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><div class="gen" hidden>${esc(item.title)}</div>` : `<div class="gen" style="background:linear-gradient(160deg,hsl(${hue} 55% 38%),hsl(${(hue + 40) % 360} 70% 14%))">${esc(item.title)}<small>${esc(item.author)}</small></div>`;
@@ -36,28 +56,14 @@ async function renderLibrary() {
   const items = tab === "books" ? (await DB.all("books")).filter(x => !["cbz","pdf"].includes(x.format)) : tab === "audio" ? await DB.all("audio") : (await DB.all("books")).filter(x => x.format === "cbz" || x.format === "pdf").filter(x => tab === "manga" ? x.manga : !x.manga);
   const lastRead = (it) => progressOf(kind, it.id)?.ts || 0;
   items.sort((a, b) => lastRead(b) - lastRead(a) || (b.added || 0) - (a.added || 0));
-  // Repair covers from each book's OWN EPUB, without reimporting or replacing
-  // the book/progress. Only one recovery pass per record in this session.
-  for (const it of items) {
-    if (it.cover || !it.blob || it.format === "cbz" || it.format === "pdf" || coverRepairAttempted.has(it.id)) continue;
-    coverRepairAttempted.add(it.id);
-    try {
-      const epub = await Epub.open(it.blob);
-      const recovered = await epub.cover();
-      epub.destroy();
-      if (recovered && recovered.size > 0) {
-        it.cover = recovered;
-        await DB.put("books", it);
-      }
-    } catch (err) { console.warn("EPUB cover recovery skipped", it.title, err); }
-  }
-  const url = (blob) => { if (!blob) return null; const u = URL.createObjectURL(blob); nextUrls.push(u); return u; };
-  if (seq !== libraryRenderSeq) { nextUrls.forEach(u => URL.revokeObjectURL(u)); return; }
+  const srcs = new Map();
+  for (const it of items) srcs.set(it.id, await coverSrc(it, kind === "a" ? "audio" : "books"));
+  if (seq !== libraryRenderSeq) return;
   $("#empty").hidden = items.length > 0;
   $("#grid").style.display = items.length ? "" : "none";
   const cont = items.filter((it) => { const p = progressOf(kind, it.id); const f = kind === "b" || kind === "c" ? p?.o : p?.d ? p.t / p.d : 0; return p && f > 0.005 && f < 0.97; }).slice(0, 8);
-  $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, url(it.cover))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : "All audiobooks"}</h3>` : "";
-  $("#grid").innerHTML = items.map((it) => posterHtml(it, kind, url(it.cover))).join("");
+  $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, srcs.get(it.id))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : "All audiobooks"}</h3>` : "";
+  $("#grid").innerHTML = items.map((it) => posterHtml(it, kind, srcs.get(it.id))).join("");
   const previousUrls = urls;
   urls = nextUrls;
   // Safari can still be decoding old covers when the DOM changes.
@@ -91,7 +97,7 @@ function showMenu(anchor, kind, id) {
     const act = e.target.dataset.act; if (!act) return;
     m.hidden = true;
     const store = kind === "a" ? "audio" : "books";
-    if (act === "del") { if (confirm("Remove this from the tablet?")) { await DB.del(store, id); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
+    if (act === "del") { if (confirm("Remove this from the tablet?")) { await DB.del(store, id); DB.del("covers", `${store}:${id}`).catch(() => {}); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
     if (act === "cover") { const it = await DB.get(store, id); const c = await fetchCover(it.title, it.author); if (c) { it.cover = c; await DB.put(store, it); renderLibrary(); } else setStatus("No matching cover found."); setTimeout(() => setStatus(""), 3000); }
   };
 }
@@ -398,11 +404,12 @@ async function openAudio(id) {
   $("#ptitle").textContent = rec.title; $("#pauthor").textContent = rec.author;
   const cover = $("#pcover");
   cover.innerHTML = "";
-  if (rec.cover) { const im = new Image(); im.src = URL.createObjectURL(rec.cover); cover.append(im); }
+  const csrc = await coverSrc(rec, "audio");
+  if (csrc) { const im = new Image(); im.src = csrc; cover.append(im); }
   else { const hue = [...rec.title].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7); cover.innerHTML = `<div class="gen" style="background:linear-gradient(160deg,hsl(${hue} 55% 38%),hsl(${(hue + 40) % 360} 70% 14%))">${esc(rec.title)}</div>`; }
   $("#library").hidden = true; $("#player").hidden = false;
   if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({ title: rec.title, artist: rec.author || "GhostReader", artwork: rec.cover ? [{ src: URL.createObjectURL(rec.cover), sizes: "512x512" }] : [] });
+    navigator.mediaSession.metadata = new MediaMetadata({ title: rec.title, artist: rec.author || "GhostReader", artwork: csrc ? [{ src: csrc, sizes: "512x512" }] : [] });
     navigator.mediaSession.setActionHandler("play", () => audio.play());
     navigator.mediaSession.setActionHandler("pause", () => audio.pause());
     navigator.mediaSession.setActionHandler("seekbackward", () => (audio.currentTime -= 30));
