@@ -78,3 +78,15 @@ h3.sec{margin:18px 0 10px;font-size:13px;letter-spacing:.14em;color:var(--dim);t
 #tapL,#tapR,#tapM{z-index:2;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 #reader .bar{z-index:5}
 #reader .sheet{z-index:20}
+
+/* Reader v7: dedicate the area BETWEEN toolbars to book text.
+   Do not lay out pages beneath fixed navigation. */
+#reader #stage{
+  top:calc(70px + env(safe-area-inset-top));
+  bottom:66px;
+  left:0;right:0;
+  overflow:hidden;
+}
+#reader #page{width:100%;height:100%}
+#reader #rtop{z-index:6}
+#reader #rbot{z-index:6}
