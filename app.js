@@ -200,15 +200,15 @@ async function openBook(id) {
 function layoutCss() {
   const t = THEMES[settings.theme];
   const W = frame.clientWidth, H = frame.clientHeight;
-  const m = settings.margin, vert = 64;
-  const cols = W >= 1000 && W > H ? 2 : 1;
-  const gap = cols === 2 ? Math.max(2 * m, 48) : 2 * m;
-  const content = W - 2 * m;
-  const colW = (content - (cols - 1) * gap) / cols;
-  R.step = content + gap;
+  const m = Math.min(settings.margin, Math.max(16, W / 6)), vert = 64;
+  // Each column is exactly one viewport wide including its margins.
+  // Safari needs a definite body width/height for horizontal CSS columns.
+  const colW = W - 2 * m;
+  const gap = 2 * m;
+  R.step = W;
   const fam = settings.font === "serif" ? "Georgia,'Times New Roman',serif" : "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
   return `html{overflow:hidden;background:${t.bg}}
-body{margin:0!important;padding:${vert}px ${m}px!important;height:${H - 2 * vert}px;box-sizing:content-box;column-width:${colW}px;column-gap:${gap}px;column-fill:auto;
+body{margin:0!important;padding:${vert}px ${m}px!important;width:${W}px!important;height:${H}px!important;box-sizing:border-box;column-width:${colW}px;column-gap:${gap}px;column-fill:auto;overflow:visible!important;
   background:${t.bg}!important;color:${t.ink}!important;font-family:${fam}!important;font-size:${settings.size}px!important;line-height:${settings.spacing}!important;text-align:left;hyphens:auto;word-break:break-word}
 body *{color:inherit!important;background:transparent!important;font-family:inherit!important;max-width:100%}
 p,li,div,span,blockquote{font-size:inherit!important;line-height:inherit!important}
@@ -236,13 +236,16 @@ async function showChapter(ci, { frac = 0, end = false } = {}) {
   let sx = 0, sy = 0;
   doc.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
   doc.addEventListener("touchend", (e) => { const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) turn(dx < 0 ? 1 : -1); }, { passive: true });
-  R.pages = Math.max(1, Math.round(doc.documentElement.scrollWidth / R.step));
+  R.pages = Math.max(1, Math.ceil(Math.max(doc.body.scrollWidth, doc.documentElement.scrollWidth) / R.step));
   R.page = end ? R.pages - 1 : Math.min(R.pages - 1, Math.floor(frac * R.pages));
   seek();
 }
 function seek() {
-  frame.contentDocument.documentElement.scrollLeft = R.page * R.step;
-  frame.contentWindow.scrollTo(R.page * R.step, 0);
+  const doc = frame.contentDocument;
+  const x = R.page * R.step;
+  doc.documentElement.scrollLeft = x;
+  doc.body.scrollLeft = x;
+  frame.contentWindow.scrollTo(x, 0);
   updateProgress();
 }
 function turn(d) {
@@ -266,6 +269,11 @@ const toggleChrome = () => $("#reader").classList.toggle("chromeoff");
 $("#tapL").addEventListener("click", () => turn(-1));
 $("#tapR").addEventListener("click", () => turn(1));
 $("#tapM").addEventListener("click", toggleChrome);
+$("#rprev").addEventListener("click", () => turn(-1));
+$("#rnext").addEventListener("click", () => turn(1));
+let touchStart = null;
+$("#stage").addEventListener("touchstart", e => { if(e.touches.length === 1) touchStart = {x:e.touches[0].clientX,y:e.touches[0].clientY}; }, {passive:true});
+$("#stage").addEventListener("touchend", e => { if(!touchStart) return; const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y; touchStart=null; if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)*1.2) turn(dx<0?1:-1); }, {passive:true});
 $("#rslide").addEventListener("change", (e) => {
   const v = Number(e.target.value) / 1000 * R.epub.spine.length;
   showChapter(Math.floor(v), { frac: v - Math.floor(v) });
