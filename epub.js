@@ -56,6 +56,32 @@ export class Epub {
         } catch {}
       }
     }
+    // <guide> reference, then the first page of the book, then the biggest picture inside.
+    const firstImage = async (pagePath) => {
+      try {
+        const page = new DOMParser().parseFromString(await this.zip.text(pagePath), "text/html");
+        const src = page.querySelector("img[src]")?.getAttribute("src") || page.querySelector("image")?.getAttribute("href") || page.querySelector("image")?.getAttribute("xlink:href");
+        return src ? resolve(pagePath, src) : null;
+      } catch { return null; }
+    };
+    if (!(cover && this.zip.has(cover))) {
+      const ref = all(opf, "reference").find((r) => /cover/i.test(r.getAttribute("type") || ""));
+      const href = ref && resolve(this.opfPath, ref.getAttribute("href") || "");
+      if (href && this.zip.has(href)) cover = /\.(jpe?g|png|gif|webp)$/i.test(href) ? href : await firstImage(href);
+    }
+    if (!(cover && this.zip.has(cover)) && this.spine[0]) {
+      const c = await firstImage(this.spine[0]);
+      if (c && this.zip.has(c)) cover = c;
+    }
+    if (!(cover && this.zip.has(cover))) {
+      let best = null;
+      for (const name of this.zip.names()) {
+        if (!/\.(jpe?g|png|webp)$/i.test(name)) continue;
+        const en = this.zip.entries.get(name);
+        if (en.usize > 20000 && (!best || en.usize > best.usize)) best = en;
+      }
+      if (best) cover = best.name;
+    }
     this.coverPath = cover && this.zip.has(cover) ? cover : null;
     // table of contents
     try {

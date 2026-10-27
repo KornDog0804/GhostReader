@@ -23,6 +23,7 @@ function progressOf(kind, id) { return LS.get(`gr:${kind}:${id}`, null); }
 // Covers are cached as data URLs in their own store. Safari can drop or invalidate Blob
 // URLs for blobs read back out of IndexedDB, which made artwork vanish.
 const blobToDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
+const coverOnlineTried = new Set();
 async function coverSrc(it, store) {
   const key = `${store}:${it.id}`;
   try {
@@ -34,6 +35,11 @@ async function coverSrc(it, store) {
   if (blob) { try { data = await blobToDataUrl(blob); } catch {} }
   if ((!data || data.length < 200) && store === "books" && it.blob && it.format !== "cbz" && it.format !== "pdf") {
     try { const ep = await Epub.open(it.blob); blob = await ep.cover(); ep.destroy(); if (blob && blob.size) data = await blobToDataUrl(blob); } catch {}
+  }
+  if ((!data || data.length < 200) && store === "books" && !coverOnlineTried.has(key)) {
+    // Last resort: look the book up online (once per visit).
+    coverOnlineTried.add(key);
+    try { const c = await fetchCover(it.title, it.author); if (c) { blob = c; data = await blobToDataUrl(c); } } catch {}
   }
   if (!data || data.length < 200) return null;
   try { await DB.put("covers", { key, size: blob.size, data }); } catch {}
