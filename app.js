@@ -45,7 +45,9 @@ async function renderLibrary() {
   const previousUrls = urls;
   urls = nextUrls;
   // Safari can still be decoding old covers when the DOM changes.
-  setTimeout(() => previousUrls.forEach(u => URL.revokeObjectURL(u)), 2000);
+  // iPad Safari may decode off-screen covers much later than the DOM update.
+  // Keep prior blob URLs alive until the next library session.
+  setTimeout(() => previousUrls.forEach(u => URL.revokeObjectURL(u)), 60000);
 }
 
 document.addEventListener("click", (e) => {
