@@ -1,0 +1,16 @@
+{
+  "name": "GhostReader",
+  "short_name": "GhostReader",
+  "description": "Read your ebooks and listen to your audiobooks. Works offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0614",
+  "theme_color": "#0a0614",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ],
+  "file_handlers": [{"action": "./", "accept": {"application/epub+zip": [".epub"], "application/zip": [".zip"], "audio/mp4": [".m4b", ".m4a"], "audio/mpeg": [".mp3"]}}]
+}
