@@ -68,3 +68,32 @@ export async function fetchGoogleCover(title, author) {
   } catch { /* offline or blocked */ }
   return null;
 }
+
+/** Last resort when the image itself can't be downloaded (CORS): just return a URL the <img> tag can show. */
+export async function findCoverUrls(title, author) {
+  const hasAuthor = !!author && !/^unknown/i.test(author);
+  const urls = [];
+  const last = hasAuthor ? norm(author).split(" ").pop() : "";
+  const want = norm(title);
+  const okTitle = (t) => { const f = norm(t || ""); return f && (f === want || f.startsWith(want) || want.startsWith(f)); };
+  try {
+    const q = "https://openlibrary.org/search.json?title=" + encodeURIComponent(title) + (hasAuthor ? "&author=" + encodeURIComponent(author) : "") + "&limit=8&fields=cover_i,title,author_name";
+    for (const d of (await (await fetch(q)).json()).docs || []) {
+      if (!d.cover_i || !okTitle(d.title)) continue;
+      if (last && !(d.author_name || []).some((n) => norm(n).includes(last))) continue;
+      urls.push(`https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`);
+    }
+  } catch {}
+  try {
+    const g = `intitle:${title}` + (hasAuthor ? `+inauthor:${author}` : "");
+    const r = await fetch("https://www.googleapis.com/books/v1/volumes?maxResults=8&printType=books&q=" + encodeURIComponent(g).replace(/%2B/g, "+"));
+    for (const it of (await r.json()).items || []) {
+      const v = it.volumeInfo || {};
+      if (!okTitle(v.title)) continue;
+      if (last && !(v.authors || []).some((n) => norm(n).includes(last))) continue;
+      const l = v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail;
+      if (l) urls.push(l.replace(/^http:/, "https:").replace("zoom=1", "zoom=2").replace("&edge=curl", ""));
+    }
+  } catch {}
+  return urls;
+}

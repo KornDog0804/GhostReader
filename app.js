@@ -2,7 +2,7 @@ import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
 import { PageEngine } from "./page-engine.js";
 import * as DB from "./db.js";
-import { parseName, fetchCover, fetchGoogleCover } from "./covers.js";
+import { parseName, fetchCover, fetchGoogleCover, findCoverUrls } from "./covers.js";
 
 const $ = (s) => document.querySelector(s);
 const LS = {
@@ -24,6 +24,7 @@ function progressOf(kind, id) { return LS.get(`gr:${kind}:${id}`, null); }
 // URLs for blobs read back out of IndexedDB, which made artwork vanish.
 const blobToDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
 const coverOnlineTried = new Set();
+const coverUrlTried = new Set();
 async function coverSrc(it, store) {
   const key = `${store}:${it.id}`;
   try {
@@ -40,6 +41,11 @@ async function coverSrc(it, store) {
     // Last resort: look the book up online (once per visit).
     coverOnlineTried.add(key);
     try { const c = (await fetchCover(it.title, it.author)) || (await fetchGoogleCover(it.title, it.author)); if (c) { blob = c; data = await blobToDataUrl(c); } } catch {}
+  }
+  if ((!data || data.length < 200) && store === "books" && !coverUrlTried.has(key)) {
+    // The image bytes may be blocked by the browser (CORS), but an <img> can still show the picture from its web address.
+    coverUrlTried.add(key);
+    try { const [u] = await findCoverUrls(it.title, it.author); if (u) { await DB.put("covers", { key, size: 0, data: u, remote: true }); return u; } } catch {}
   }
   if (!data || data.length < 200) return null;
   try { await DB.put("covers", { key, size: blob.size, data }); } catch {}
@@ -108,7 +114,7 @@ function showMenu(anchor, kind, id) {
     if (act === "cover") {
       setStatus("Looking for a cover…");
       try { await DB.del("covers", key); } catch {}
-      coverOnlineTried.delete(key);
+      coverOnlineTried.delete(key); coverUrlTried.delete(key);
       const it = await DB.get(store, id);
       it.cover = null; // force a fresh search of the file, Open Library and Google Books
       const src = await coverSrc(it, store);
