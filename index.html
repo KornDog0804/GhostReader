@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GhostReader</title>
+<meta name="theme-color" content="#0a0614">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <section id="library" class="view">
+    <header class="top">
+      <div class="brand">GHOST<span>READER</span></div>
+      <button id="add" class="pill primary">+ Add</button>
+    </header>
+    <nav class="tabs">
+      <button data-tab="books" class="on">Books</button>
+      <button data-tab="audio">Audiobooks</button>
+    </nav>
+    <div id="status" class="status" hidden></div>
+    <div id="continue"></div>
+    <div id="grid" class="grid"></div>
+    <div id="empty" class="empty" hidden>
+      <div class="emptyart">👻</div>
+      <h2>Your shelf is empty</h2>
+      <p>Add EPUB books or audiobooks from this tablet or Google Drive. You can also add the whole library ZIP saved from the GhostReader phone app.</p>
+      <button class="pill primary big" id="add2">Add books</button>
+    </div>
+  </section>
+
+  <section id="reader" class="view" hidden>
+    <header class="bar" id="rtop">
+      <button id="rback" class="icon" aria-label="Back">‹</button>
+      <div class="rtitle"><b id="rt"></b><small id="rc"></small></div>
+      <button id="rtoc" class="icon" aria-label="Contents">☰</button>
+      <button id="rset" class="icon" aria-label="Appearance">Aa</button>
+    </header>
+    <div id="stage"><iframe id="page" title="Book page" sandbox="allow-same-origin"></iframe><div id="tapL"></div><div id="tapM"></div><div id="tapR"></div></div>
+    <footer class="bar" id="rbot">
+      <input id="rslide" type="range" min="0" max="1000" value="0" aria-label="Progress">
+      <small id="rpct">0%</small>
+    </footer>
+    <aside id="toc" class="sheet" hidden><div class="sheethead"><b>Contents</b><button class="icon" data-close>✕</button></div><div id="toclist"></div></aside>
+    <aside id="settings" class="sheet small" hidden>
+      <div class="sheethead"><b>Appearance</b><button class="icon" data-close>✕</button></div>
+      <div class="row"><span>Theme</span><div class="seg" id="themes"><button data-v="ghost">Ghost</button><button data-v="night">Night</button><button data-v="sepia">Sepia</button><button data-v="paper">Paper</button></div></div>
+      <div class="row"><span>Text size</span><div class="seg"><button id="fdown">A−</button><button id="fup">A+</button></div></div>
+      <div class="row"><span>Font</span><div class="seg" id="fonts"><button data-v="serif">Serif</button><button data-v="sans">Sans</button></div></div>
+      <div class="row"><span>Spacing</span><input id="spacing" type="range" min="1.3" max="2.2" step="0.05"></div>
+      <div class="row"><span>Margins</span><input id="margin" type="range" min="16" max="120" step="4"></div>
+    </aside>
+  </section>
+
+  <section id="player" class="view" hidden>
+    <header class="bar"><button id="pback" class="icon" aria-label="Back">‹</button><div class="rtitle"><b>Audiobook</b></div></header>
+    <div class="pbody">
+      <div id="pcover" class="pcover"></div>
+      <h2 id="ptitle"></h2><p id="pauthor"></p>
+      <input id="pseek" type="range" min="0" max="1000" value="0">
+      <div class="times"><span id="pcur">0:00</span><span id="pdur">0:00</span></div>
+      <div class="controls">
+        <button id="pback30" class="icon big">⟲ 30</button>
+        <button id="pplay" class="playbtn">▶</button>
+        <button id="pfwd30" class="icon big">30 ⟳</button>
+      </div>
+      <button id="pspeed" class="pill">1.0×</button>
+    </div>
+    <audio id="audio" preload="metadata"></audio>
+  </section>
+</div>
+<div id="menu" class="menu" hidden></div>
+<input id="file" type="file" multiple accept=".epub,.zip,.m4b,.m4a,.mp3,application/epub+zip,application/zip,audio/*" hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>
