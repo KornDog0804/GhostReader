@@ -12,6 +12,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 
 let tab = "books";
 let urls = [];
+let libraryRenderSeq = 0;
 const setStatus = (t) => { const el = $("#status"); el.textContent = t; el.hidden = !t; };
 
 /* ---------------- library ---------------- */
@@ -27,17 +28,23 @@ function posterHtml(item, kind, url) {
 }
 
 async function renderLibrary() {
-  urls.forEach((u) => URL.revokeObjectURL(u)); urls = [];
+  const seq = ++libraryRenderSeq;
+  const nextUrls = [];
   const kind = tab === "books" ? "b" : tab === "audio" ? "a" : "c";
   const items = tab === "books" ? (await DB.all("books")).filter(x => !["cbz","pdf"].includes(x.format)) : tab === "audio" ? await DB.all("audio") : (await DB.all("books")).filter(x => x.format === "cbz" || x.format === "pdf").filter(x => tab === "manga" ? x.manga : !x.manga);
   const lastRead = (it) => progressOf(kind, it.id)?.ts || 0;
   items.sort((a, b) => lastRead(b) - lastRead(a) || (b.added || 0) - (a.added || 0));
-  const url = (blob) => { if (!blob) return null; const u = URL.createObjectURL(blob); urls.push(u); return u; };
+  const url = (blob) => { if (!blob) return null; const u = URL.createObjectURL(blob); nextUrls.push(u); return u; };
+  if (seq !== libraryRenderSeq) { nextUrls.forEach(u => URL.revokeObjectURL(u)); return; }
   $("#empty").hidden = items.length > 0;
   $("#grid").style.display = items.length ? "" : "none";
   const cont = items.filter((it) => { const p = progressOf(kind, it.id); const f = kind === "b" || kind === "c" ? p?.o : p?.d ? p.t / p.d : 0; return p && f > 0.005 && f < 0.97; }).slice(0, 8);
   $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, url(it.cover))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : "All audiobooks"}</h3>` : "";
   $("#grid").innerHTML = items.map((it) => posterHtml(it, kind, url(it.cover))).join("");
+  const previousUrls = urls;
+  urls = nextUrls;
+  // Safari can still be decoding old covers when the DOM changes.
+  setTimeout(() => previousUrls.forEach(u => URL.revokeObjectURL(u)), 2000);
 }
 
 document.addEventListener("click", (e) => {
@@ -236,16 +243,17 @@ async function showChapter(ci, { frac = 0, end = false } = {}) {
   let sx = 0, sy = 0;
   doc.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
   doc.addEventListener("touchend", (e) => { const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) turn(dx < 0 ? 1 : -1); }, { passive: true });
-  R.pages = Math.max(1, Math.ceil(Math.max(doc.body.scrollWidth, doc.documentElement.scrollWidth) / R.step));
+  R.pages = Math.max(1, Math.ceil((Math.max(doc.body.scrollWidth, doc.documentElement.scrollWidth) - 1) / R.step));
   R.page = end ? R.pages - 1 : Math.min(R.pages - 1, Math.floor(frac * R.pages));
   seek();
 }
 function seek() {
   const doc = frame.contentDocument;
   const x = R.page * R.step;
-  doc.documentElement.scrollLeft = x;
-  doc.body.scrollLeft = x;
-  frame.contentWindow.scrollTo(x, 0);
+  // Transforming the column container is reliable on iPad Safari,
+  // unlike scrolling a sandboxed srcdoc iframe with overflow:hidden.
+  doc.body.style.transform = `translate3d(${-x}px,0,0)`;
+  doc.body.style.transformOrigin = "top left";
   updateProgress();
 }
 function turn(d) {
