@@ -2,6 +2,7 @@ import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
 import { PageEngine } from "./page-engine.js";
 import * as DB from "./db.js";
+import { getConfig, setConfig, syncNow, isSyncing } from "./sync.js";
 import { parseName, fetchCover, fetchGoogleCover, findCoverUrls } from "./covers.js";
 
 const $ = (s) => document.querySelector(s);
@@ -489,3 +490,46 @@ $("#ver").addEventListener("click", async () => {
   location.reload();
 });
 renderLibrary();
+
+
+/* ---------------- sync ---------------- */
+function syncLabel() {
+  const cfg = getConfig();
+  if (!cfg) { $("#syncbtn").textContent = "Sync: not set up"; return; }
+  const t = LS.get("gr:synctime", 0);
+  $("#syncbtn").textContent = "Sync: on" + (t ? " · last " + new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
+}
+async function runSync(visible) {
+  if (!getConfig() || isSyncing()) return;
+  const say = (t) => { $("#syncbtn").textContent = "Sync: " + t; if (visible) $("#syncmsg").textContent = t; };
+  try {
+    const msg = await syncNow(say);
+    if (visible) $("#syncmsg").textContent = msg;
+    if ($("#reader").hidden && $("#player").hidden) await renderLibrary();
+  } catch (e) {
+    const m = String(e.message || e);
+    $("#syncbtn").textContent = "Sync problem — tap to check";
+    if (visible) $("#syncmsg").textContent = /fetch|Load failed|NetworkError/i.test(m) ? "Couldn't reach the sync address. Check it and your internet." : m;
+    return;
+  }
+  syncLabel();
+}
+$("#syncbtn").addEventListener("click", () => {
+  const cfg = getConfig();
+  $("#syncurl").value = cfg?.url || ""; $("#synckey").value = cfg?.key || "";
+  $("#syncmsg").textContent = ""; $("#syncdlg").hidden = false;
+});
+$("#syncclose").addEventListener("click", () => ($("#syncdlg").hidden = true));
+$("#syncoff").addEventListener("click", () => { setConfig(null); $("#syncdlg").hidden = true; syncLabel(); });
+$("#syncsave").addEventListener("click", async () => {
+  const url = $("#syncurl").value.trim(), key = $("#synckey").value.trim();
+  if (!/^https:\/\//i.test(url) || !key) { $("#syncmsg").textContent = "Enter the https address and your key."; return; }
+  setConfig({ url, key });
+  $("#syncmsg").textContent = "Connecting…";
+  await runSync(true);
+});
+syncLabel();
+setTimeout(() => runSync(false), 1500);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) runSync(false); });
+$("#rback").addEventListener("click", () => setTimeout(() => runSync(false), 800));
+$("#pback").addEventListener("click", () => setTimeout(() => runSync(false), 800));

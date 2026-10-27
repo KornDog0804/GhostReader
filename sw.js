@@ -1,7 +1,7 @@
 // Version is bumped on every deploy; the page shows it at the bottom of the library.
-const VERSION = "20261026-2252";
+const VERSION = "20261026-2310";
 const CACHE = "ghostreader-" + VERSION;
-const SHELL = ["./", "index.html", "style.css", "app.js", "page-engine.js", "zip.js", "epub.js", "db.js", "covers.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const SHELL = ["./", "index.html", "style.css", "app.js", "page-engine.js", "zip.js", "epub.js", "db.js", "covers.js", "sync.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 self.addEventListener("install", (e) => {
   // cache:"reload" skips Safari's own HTTP cache so the new files are really the new files.
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => fetch(new Request(u, { cache: "reload" })).then((r) => c.put(u, r))))).then(() => self.skipWaiting()));

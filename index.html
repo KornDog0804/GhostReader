@@ -29,6 +29,7 @@
     <div id="status" class="status" hidden></div>
     <div id="continue"></div>
     <div id="grid" class="grid"></div>
+    <button id="syncbtn" class="ver">Sync: not set up</button>
     <button id="ver" class="ver">Version …</button>
     <div id="empty" class="empty" hidden>
       <div class="emptyart">👻</div>
@@ -80,6 +81,17 @@
   </section>
 </div>
 <div id="menu" class="menu" hidden></div>
+<div id="syncdlg" class="overlay" hidden>
+  <div class="dlg">
+    <h3>Sync your library</h3>
+    <p class="dim">Keeps books, covers and reading progress the same on every device, using your own Cloudflare. Audiobooks stay on each device.</p>
+    <label>Sync address<input id="syncurl" type="url" placeholder="https://ghostreader-sync.yourname.workers.dev" autocapitalize="off" autocorrect="off"></label>
+    <label>Sync key<input id="synckey" type="password" placeholder="the SYNC_KEY you chose" autocapitalize="off" autocorrect="off"></label>
+    <div id="syncmsg" class="dim"></div>
+    <div class="dlgbtns"><button id="syncsave" class="pill primary">Save &amp; sync</button><button id="syncoff" class="pill">Turn off</button><button id="syncclose" class="pill">Close</button></div>
+    <p class="dim small"><a href="setup.html" target="_blank">How to set up the sync address</a></p>
+  </div>
+</div>
 <input id="file" type="file" multiple accept=".epub,.pdf,.cbz,.zip" hidden>
 <script type="module" src="app.js"></script>
 </body>
