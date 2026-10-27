@@ -13,6 +13,8 @@ internal object LibraryBackup {
  private const val LIMIT = 12L * 1024 * 1024 * 1024
  private const val MAX_BOOKS = 2000
 
+ @Volatile var lastSize: Long = 0L
+
  fun export(context: Context, destination: Uri, includeAudio: Boolean = true, onStatus: (String) -> Unit = {}): Int {
   val shelf = File(context.filesDir, "books")
   val books = shelf.listFiles()?.filter { it.isFile && it.extension.equals("epub", true) } ?: emptyList()
@@ -26,20 +28,17 @@ internal object LibraryBackup {
   }
   val manifest = JSONObject().put("format", "ghostreader-library").put("version", 1)
    .put("settings", settings)
-  // A file descriptor is more dependable than a plain stream for Google Drive.
-  val pfd = runCatching { context.contentResolver.openFileDescriptor(destination, "w") }.getOrNull()
-  val stream: java.io.OutputStream = pfd?.let { java.io.FileOutputStream(it.fileDescriptor) }
-   ?: context.contentResolver.openOutputStream(destination, "w") ?: error("Cannot write backup")
+  // Build the ZIP locally first (fast, reliable), then hand the finished file to the destination.
+  val local = File(context.cacheDir, "ghostreader-export.zip")
+  local.delete()
   try {
-  stream.use { output ->
-   ZipOutputStream(output.buffered(256 * 1024)).use { zip ->
-    // Audio and ebooks are already compressed; squeezing them again only wastes time.
+   java.io.FileOutputStream(local).buffered(256 * 1024).let { ZipOutputStream(it) }.use { zip ->
     zip.setLevel(java.util.zip.Deflater.NO_COMPRESSION)
     zip.putNextEntry(ZipEntry("manifest.json"))
     zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
     zip.closeEntry()
     audio.forEachIndexed { index, file ->
-     onStatus("Saving audiobook ${index + 1} of ${audio.size} (${file.length() / 1_000_000} MB)…")
+     onStatus("Packing audiobook ${index + 1} of ${audio.size} (${file.length() / 1_000_000} MB)…")
      val id = index.toString().padStart(4, '0')
      zip.putNextEntry(ZipEntry("audio/$id.bin"))
      file.inputStream().use { it.copyTo(zip) }
@@ -49,7 +48,7 @@ internal object LibraryBackup {
      zip.closeEntry()
     }
     books.forEachIndexed { index, book ->
-     onStatus("Saving ebook ${index + 1} of ${books.size}…")
+     onStatus("Packing ebook ${index + 1} of ${books.size}…")
      zip.putNextEntry(ZipEntry("books/${index.toString().padStart(4, '0')}.epub"))
      book.inputStream().use { it.copyTo(zip) }
      zip.closeEntry()
@@ -58,8 +57,27 @@ internal object LibraryBackup {
      zip.closeEntry()
     }
    }
-  }
-  } finally { runCatching { pfd?.close() } }
+   val size = local.length()
+   if (size <= 0L) error("Packing produced an empty file")
+   onStatus("Copying ${size / 1_000_000} MB to your chosen location…")
+   val out = context.contentResolver.openOutputStream(destination, "wt") ?: error("Cannot write to that location")
+   out.use { o ->
+    local.inputStream().use { it.copyTo(o, 256 * 1024) }
+    o.flush()
+   }
+   // Also keep a guaranteed-good copy in Downloads so it can be uploaded by hand if Drive stalls.
+   if (android.os.Build.VERSION.SDK_INT >= 29) {
+    runCatching {
+     val values = android.content.ContentValues().apply {
+      put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "GhostReader-Library-${System.currentTimeMillis() / 1000}.zip")
+      put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/zip")
+     }
+     val dl = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+     if (dl != null) context.contentResolver.openOutputStream(dl)?.use { o -> local.inputStream().use { it.copyTo(o, 256 * 1024) } }
+    }
+   }
+   lastSize = size
+  } finally { local.delete() }
   return books.size
  }
 

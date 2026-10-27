@@ -185,7 +185,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    backupBusy = true
    torrentWorker.execute {
     val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri, exportAudio) { status -> uiHandler.post { backupStatus = status } } }
-    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Keep this ZIP in Google Drive for tablet access." }.onFailure { error = "Backup failed: ${it.message}" } }
+    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Saved ${LibraryBackup.lastSize / 1_000_000} MB. A copy is also in your phone Downloads folder. If Drive shows 0 KB, wait for its upload to finish or upload the Downloads copy." }.onFailure { error = "Backup failed: ${it.message}" } }
    }
   }
  }
