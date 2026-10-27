@@ -14,6 +14,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 let tab = "books";
 let urls = [];
 let libraryRenderSeq = 0;
+const coverRepairAttempted = new Set();
 const setStatus = (t) => { const el = $("#status"); el.textContent = t; el.hidden = !t; };
 
 /* ---------------- library ---------------- */
@@ -35,6 +36,21 @@ async function renderLibrary() {
   const items = tab === "books" ? (await DB.all("books")).filter(x => !["cbz","pdf"].includes(x.format)) : tab === "audio" ? await DB.all("audio") : (await DB.all("books")).filter(x => x.format === "cbz" || x.format === "pdf").filter(x => tab === "manga" ? x.manga : !x.manga);
   const lastRead = (it) => progressOf(kind, it.id)?.ts || 0;
   items.sort((a, b) => lastRead(b) - lastRead(a) || (b.added || 0) - (a.added || 0));
+  // Repair covers from each book's OWN EPUB, without reimporting or replacing
+  // the book/progress. Only one recovery pass per record in this session.
+  for (const it of items) {
+    if (it.cover || !it.blob || it.format === "cbz" || it.format === "pdf" || coverRepairAttempted.has(it.id)) continue;
+    coverRepairAttempted.add(it.id);
+    try {
+      const epub = await Epub.open(it.blob);
+      const recovered = await epub.cover();
+      epub.destroy();
+      if (recovered && recovered.size > 0) {
+        it.cover = recovered;
+        await DB.put("books", it);
+      }
+    } catch (err) { console.warn("EPUB cover recovery skipped", it.title, err); }
+  }
   const url = (blob) => { if (!blob) return null; const u = URL.createObjectURL(blob); nextUrls.push(u); return u; };
   if (seq !== libraryRenderSeq) { nextUrls.forEach(u => URL.revokeObjectURL(u)); return; }
   $("#empty").hidden = items.length > 0;
