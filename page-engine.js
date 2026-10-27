@@ -5,11 +5,13 @@ export class PageEngine {
   async load(html, css, opts, fraction=0) {
     const serial=++this.serial;
     const {width,height,margin,font,size,spacing,theme}=opts;
+    const horizontalMargin=Math.min(margin,Math.max(18,width*0.065));
+    const verticalMargin=Math.min(22,Math.max(12,height*0.025));
     const family=font==="serif"?"Georgia,serif":"system-ui,sans-serif";
     const safeCss=css.replace(/<\/style/gi,"");
     const shell=`<!doctype html><html><head><meta charset="utf-8"><style>
       html,body{margin:0;width:100%;height:100%;overflow:hidden;background:${theme.bg};color:${theme.ink}}
-      #page{position:absolute;inset:0;overflow:hidden;padding:${margin}px;box-sizing:border-box;
+      #page{position:absolute;inset:0;overflow:hidden;padding:${verticalMargin}px ${horizontalMargin}px;box-sizing:border-box;
       font:${size}px/${spacing} ${family};overflow-wrap:break-word}
       #page img,#page svg{max-width:100%;max-height:80%;object-fit:contain}
       #page p{margin:0 0 .7em} #page h1,#page h2,#page h3{line-height:1.25}
@@ -35,7 +37,7 @@ export class PageEngine {
       for(const child of node.childNodes)walk(child);
     };
     for(const node of source.body.childNodes)walk(node);
-    const fits=()=>page.scrollHeight<=page.clientHeight+2;
+    const fits=()=>page.scrollHeight<=page.clientHeight+1;
     const results=[];let current=doc.createDocumentFragment();
     const finish=()=>{if(page.childNodes.length){results.push(page.innerHTML);page.replaceChildren();}};
     for(const block of blocks){
