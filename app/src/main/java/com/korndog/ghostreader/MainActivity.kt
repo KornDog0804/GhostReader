@@ -179,11 +179,12 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    }
   }
  }
+ var exportAudio by remember { mutableStateOf(true) }
  val backupExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
   if (uri != null) {
    backupBusy = true
    torrentWorker.execute {
-    val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) }
+    val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri, exportAudio) { status -> uiHandler.post { backupStatus = status } } }
     uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Keep this ZIP in Google Drive for tablet access." }.onFailure { error = "Backup failed: ${it.message}" } }
    }
   }
@@ -334,7 +335,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        }
        Spacer(Modifier.height(22.dp))
        SectionLabel("SHARED LIBRARY  ·  GOOGLE DRIVE")
-       ActionCard("↑", "Save library", "Export ebooks, audiobooks and progress to a ZIP", enabled = !backupBusy) { backupExport.launch("GhostReader-Library.zip") }
+       ActionCard("↑", "Save books and progress", "Small and quick: ebooks, reading places and settings", enabled = !backupBusy) { exportAudio = false; backupExport.launch("GhostReader-Books.zip") }
+       Spacer(Modifier.height(10.dp))
+       ActionCard("⇪", "Save everything with audiobooks", "Big file. Keep GhostReader open until it says saved.", enabled = !backupBusy) { exportAudio = true; backupExport.launch("GhostReader-Library.zip") }
        Spacer(Modifier.height(10.dp))
        ActionCard("↓", "Load library", "Restore from a saved ZIP, for a new phone or tablet", enabled = !backupBusy) { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
        Text("Choose Google Drive in the file picker to move your library between devices. Manual for now; automatic sync is not enabled.", color = Color(0xFF9B8DB0), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))

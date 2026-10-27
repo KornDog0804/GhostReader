@@ -13,10 +13,10 @@ internal object LibraryBackup {
  private const val LIMIT = 12L * 1024 * 1024 * 1024
  private const val MAX_BOOKS = 2000
 
- fun export(context: Context, destination: Uri): Int {
+ fun export(context: Context, destination: Uri, includeAudio: Boolean = true, onStatus: (String) -> Unit = {}): Int {
   val shelf = File(context.filesDir, "books")
   val books = shelf.listFiles()?.filter { it.isFile && it.extension.equals("epub", true) } ?: emptyList()
-  val audio = File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: emptyList()
+  val audio = if (!includeAudio) emptyList() else File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: emptyList()
   val prefs = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
   val settings = JSONObject()
   prefs.all.forEach { (key, value) ->
@@ -26,13 +26,20 @@ internal object LibraryBackup {
   }
   val manifest = JSONObject().put("format", "ghostreader-library").put("version", 1)
    .put("settings", settings)
-  val stream = context.contentResolver.openOutputStream(destination, "w") ?: error("Cannot write backup")
+  // A file descriptor is more dependable than a plain stream for Google Drive.
+  val pfd = runCatching { context.contentResolver.openFileDescriptor(destination, "w") }.getOrNull()
+  val stream: java.io.OutputStream = pfd?.let { java.io.FileOutputStream(it.fileDescriptor) }
+   ?: context.contentResolver.openOutputStream(destination, "w") ?: error("Cannot write backup")
+  try {
   stream.use { output ->
-   ZipOutputStream(output.buffered()).use { zip ->
+   ZipOutputStream(output.buffered(256 * 1024)).use { zip ->
+    // Audio and ebooks are already compressed; squeezing them again only wastes time.
+    zip.setLevel(java.util.zip.Deflater.NO_COMPRESSION)
     zip.putNextEntry(ZipEntry("manifest.json"))
     zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
     zip.closeEntry()
     audio.forEachIndexed { index, file ->
+     onStatus("Saving audiobook ${index + 1} of ${audio.size} (${file.length() / 1_000_000} MB)…")
      val id = index.toString().padStart(4, '0')
      zip.putNextEntry(ZipEntry("audio/$id.bin"))
      file.inputStream().use { it.copyTo(zip) }
@@ -42,6 +49,7 @@ internal object LibraryBackup {
      zip.closeEntry()
     }
     books.forEachIndexed { index, book ->
+     onStatus("Saving ebook ${index + 1} of ${books.size}…")
      zip.putNextEntry(ZipEntry("books/${index.toString().padStart(4, '0')}.epub"))
      book.inputStream().use { it.copyTo(zip) }
      zip.closeEntry()
@@ -51,6 +59,7 @@ internal object LibraryBackup {
     }
    }
   }
+  } finally { runCatching { pfd?.close() } }
   return books.size
  }
 
