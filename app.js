@@ -444,5 +444,22 @@ $("#pback").addEventListener("click", () => { saveAudio(true); audio.pause(); $(
 addEventListener("pagehide", () => { saveAudio(true); });
 
 /* ---------------- start ---------------- */
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  // When a newer copy of the app is installed, reload once so it takes effect without clearing anything.
+  let hadController = !!navigator.serviceWorker.controller, reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded && $("#reader").hidden && $("#player").hidden) { reloaded = true; location.reload(); } hadController = true; });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
+    navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.version) $("#ver").textContent = "Version " + e.data.version + " · tap to update"; });
+    const ask = () => (reg.active || navigator.serviceWorker.controller)?.postMessage("version");
+    ask(); setTimeout(ask, 1500);
+  }).catch(() => {});
+}
+// Tap the version line to wipe the app's cached files and reload (books, covers and progress are kept).
+$("#ver").addEventListener("click", async () => {
+  $("#ver").textContent = "Updating…";
+  try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
+  location.reload();
+});
 renderLibrary();
