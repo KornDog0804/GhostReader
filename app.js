@@ -21,21 +21,21 @@ function posterHtml(item, kind, url) {
   const hue = [...(item.title || "x")].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   const art = url ? `<img src="${url}" alt="">` : `<div class="gen" style="background:linear-gradient(160deg,hsl(${hue} 55% 38%),hsl(${(hue + 40) % 360} 70% 14%))">${esc(item.title)}<small>${esc(item.author)}</small></div>`;
   const p = progressOf(kind, item.id);
-  const frac = kind === "b" ? (p?.o ?? 0) : p?.d ? Math.min(1, (p.t || 0) / p.d) : 0;
+  const frac = kind === "b" ? (p?.o ?? 0) : kind === "c" ? (p?.o ?? 0) : p?.d ? Math.min(1, (p.t || 0) / p.d) : 0;
   const badge = kind === "a" ? '<span class="badge">🎧 Audio</span>' : "";
   return `<button class="card" data-kind="${kind}" data-id="${item.id}"><div class="poster">${art}${badge}${frac > 0.005 ? `<div class="bar-prog"><i style="width:${Math.round(frac * 100)}%"></i></div>` : ""}<span class="more" data-more="1">⋮</span></div><div class="ctitle">${esc(item.title)}</div><div class="cauthor">${esc(item.author)}</div></button>`;
 }
 
 async function renderLibrary() {
   urls.forEach((u) => URL.revokeObjectURL(u)); urls = [];
-  const kind = tab === "books" ? "b" : "a";
-  const items = await DB.all(tab === "books" ? "books" : "audio");
+  const kind = tab === "books" ? "b" : tab === "audio" ? "a" : "c";
+  const items = tab === "books" ? (await DB.all("books")).filter(x => !["cbz","pdf"].includes(x.format)) : tab === "audio" ? await DB.all("audio") : (await DB.all("books")).filter(x => x.format === "cbz" || x.format === "pdf").filter(x => tab === "manga" ? x.manga : !x.manga);
   const lastRead = (it) => progressOf(kind, it.id)?.ts || 0;
   items.sort((a, b) => lastRead(b) - lastRead(a) || (b.added || 0) - (a.added || 0));
   const url = (blob) => { if (!blob) return null; const u = URL.createObjectURL(blob); urls.push(u); return u; };
   $("#empty").hidden = items.length > 0;
   $("#grid").style.display = items.length ? "" : "none";
-  const cont = items.filter((it) => { const p = progressOf(kind, it.id); const f = kind === "b" ? p?.o : p?.d ? p.t / p.d : 0; return p && f > 0.005 && f < 0.97; }).slice(0, 8);
+  const cont = items.filter((it) => { const p = progressOf(kind, it.id); const f = kind === "b" || kind === "c" ? p?.o : p?.d ? p.t / p.d : 0; return p && f > 0.005 && f < 0.97; }).slice(0, 8);
   $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, url(it.cover))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : "All audiobooks"}</h3>` : "";
   $("#grid").innerHTML = items.map((it) => posterHtml(it, kind, url(it.cover))).join("");
 }
@@ -45,7 +45,7 @@ document.addEventListener("click", (e) => {
   if (card && $("#library").contains(card)) {
     const id = Number(card.dataset.id), kind = card.dataset.kind;
     if (e.target.closest("[data-more]")) return showMenu(e.target, kind, id);
-    return kind === "b" ? openBook(id) : openAudio(id);
+    return kind === "b" ? openBook(id) : kind === "c" ? openComic(id) : openAudio(id);
   }
   if (!e.target.closest("#menu")) $("#menu").hidden = true;
 });
@@ -64,13 +64,14 @@ function showMenu(anchor, kind, id) {
   m.onclick = async (e) => {
     const act = e.target.dataset.act; if (!act) return;
     m.hidden = true;
-    const store = kind === "b" ? "books" : "audio";
+    const store = kind === "a" ? "audio" : "books";
     if (act === "del") { if (confirm("Remove this from the tablet?")) { await DB.del(store, id); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
     if (act === "cover") { const it = await DB.get(store, id); const c = await fetchCover(it.title, it.author); if (c) { it.cover = c; await DB.put(store, it); renderLibrary(); } else setStatus("No matching cover found."); setTimeout(() => setStatus(""), 3000); }
   };
 }
 
 /* ---------------- importing ---------------- */
+const COMIC_EXT = /\.(cbz|pdf)$/i;
 const AUDIO_EXT = /\.(m4b|m4a|mp3|ogg|opus|flac)$/i;
 
 async function addEpub(blob, fileName) {
@@ -119,11 +120,27 @@ async function importZip(file) {
   return added;
 }
 
+async function addComic(blob, fileName) {
+ const existing = await DB.all("books");
+ if (existing.some(x => x.name === fileName && x.size === blob.size)) return false;
+ const format = fileName.toLowerCase().endsWith(".pdf") ? "pdf" : "cbz";
+ let cover = null;
+ if (format === "cbz") {
+  const zip = await Zip.open(blob);
+  const pages = zip.names().filter(x => /\.(jpe?g|png|webp|gif)$/i.test(x) && !x.startsWith("__MACOSX/")).sort((x,y) => x.localeCompare(y,undefined,{numeric:true,sensitivity:"base"}));
+  if (!pages.length) throw new Error("CBZ has no image pages");
+  cover = await zip.blob_(pages[0], "image/jpeg");
+ }
+ const parsed = parseName(fileName);
+ await DB.put("books", { name:fileName,size:blob.size,title:parsed.title,author:parsed.author,cover,blob,format,manga:false,added:Date.now() });
+ return true;
+}
 async function importFiles(files) {
   let added = 0;
   try {
     for (const f of files) {
       if (/\.epub$/i.test(f.name)) { setStatus("Adding " + f.name + "…"); if (await addEpub(f, f.name)) added++; }
+      else if (COMIC_EXT.test(f.name)) { setStatus("Adding " + f.name + "…"); if (await addComic(f, f.name)) added++; }
       else if (/\.zip$/i.test(f.name)) { if (f.size === 0) { setStatus("That ZIP is empty (0 KB). Save the library again from the phone app."); return; } added += await importZip(f); }
       else if (AUDIO_EXT.test(f.name)) { setStatus("Adding " + f.name + "…"); if (await addAudio(f, f.name)) added++; }
     }
@@ -273,6 +290,68 @@ $("#fdown").addEventListener("click", () => { settings.size = Math.max(12, setti
 $("#fup").addEventListener("click", () => { settings.size = Math.min(40, settings.size + 2); relayout(); });
 $("#spacing").addEventListener("change", (e) => { settings.spacing = Number(e.target.value); relayout(); });
 $("#margin").addEventListener("change", (e) => { settings.margin = Number(e.target.value); relayout(); });
+
+
+/* ---------------- comic and PDF reader ---------------- */
+let C = null, comicUrl = null;
+const comicImage = $("#comicpage");
+function comicProgress() {
+ if (!C) return;
+ $("#cslide").max = C.pages.length; $("#cslide").value = C.page + 1;
+ $("#cprogress").textContent = `${C.page + 1} / ${C.pages.length}`;
+ LS.set(`gr:c:${C.id}`, { page:C.page, o:(C.page+1)/C.pages.length, ts:Date.now() });
+}
+async function showComicPage() {
+ if (!C || C.format === "pdf") return;
+ if (comicUrl) URL.revokeObjectURL(comicUrl);
+ const path = C.pages[C.page];
+ const ext = path.split(".").pop().toLowerCase();
+ comicUrl = URL.createObjectURL(await C.zip.blob_(path, ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg"));
+ comicImage.src = comicUrl;
+ comicProgress();
+}
+function turnComic(delta) {
+ if (!C || C.format === "pdf") return;
+ C.page = Math.max(0,Math.min(C.pages.length-1,C.page+(C.rtl?-delta:delta)));
+ showComicPage();
+}
+async function openComic(id) {
+ const rec = await DB.get("books",id); if (!rec) return;
+ if (comicUrl) { URL.revokeObjectURL(comicUrl); comicUrl=null; }
+ const saved=LS.get(`gr:c:${id}`,{});
+ C={id,format:rec.format,rtl:!!rec.manga,page:saved.page||0,pages:[],zip:null};
+ $("#ctitle").textContent=rec.title;
+ $("#library").hidden=true; $("#comicreader").hidden=false;
+ $("#cdir").textContent=C.rtl?"RTL":"LTR"; $("#cmode").textContent="Page";
+ $("#pdfpage").hidden=true; comicImage.hidden=false; $("#comicbar").hidden=false;
+ if(rec.format==="pdf") {
+  C.pages=[0]; C.format="pdf"; comicImage.hidden=true; $("#comicbar").hidden=true;
+  const url=URL.createObjectURL(rec.blob); comicUrl=url;
+  $("#pdfpage").src=url; $("#pdfpage").hidden=false;
+  $("#cprogress").textContent="PDF"; return;
+ }
+ C.zip=await Zip.open(rec.blob);
+ C.pages=C.zip.names().filter(x=>/\.(jpe?g|png|webp|gif)$/i.test(x)&&!x.startsWith("__MACOSX/")).sort((x,y)=>x.localeCompare(y,undefined,{numeric:true,sensitivity:"base"}));
+ C.page=Math.max(0,Math.min(C.pages.length-1,C.page));
+ await showComicPage();
+}
+$("#cback").addEventListener("click",()=>{
+ $("#comicreader").hidden=true; $("#library").hidden=false;
+ comicImage.removeAttribute("src"); $("#pdfpage").removeAttribute("src");
+ if(comicUrl) URL.revokeObjectURL(comicUrl); comicUrl=null; C=null; renderLibrary();
+});
+$("#cprev").addEventListener("click",()=>turnComic(-1));
+$("#cnext").addEventListener("click",()=>turnComic(1));
+$("#cslide").addEventListener("input",e=>{if(C&&C.format!=="pdf"){C.page=Number(e.target.value)-1;showComicPage();}});
+$("#cdir").addEventListener("click",async()=>{
+ if(!C)return; C.rtl=!C.rtl; $("#cdir").textContent=C.rtl?"RTL":"LTR";
+ const rec=await DB.get("books",C.id); rec.manga=C.rtl; await DB.put("books",rec);
+});
+$("#cmode").addEventListener("click",()=>{
+ const scroll=$("#comicstage").classList.toggle("scrollmode");
+ $("#cmode").textContent=scroll?"Scroll":"Page";
+});
+comicImage.addEventListener("click",e=>{const x=e.offsetX/e.target.clientWidth;turnComic(x<.4?-1:x>.6?1:0);});
 
 /* ---------------- audiobook player ---------------- */
 const audio = $("#audio");
