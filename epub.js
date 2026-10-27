@@ -40,6 +40,22 @@ export class Epub {
       const meta = all(opf, "meta").find((x) => x.getAttribute("name") === "cover");
       if (meta) cover = manifest.get(meta.getAttribute("content"))?.href || null;
     }
+    // EPUBs differ: some store the cover as a manifest image, others only
+    // reference it from a cover XHTML page. Resolve both before giving up.
+    if (!cover) {
+      const candidates = [...manifest.values()].filter(m => /^image\/(jpeg|png|webp|gif)$/i.test(m.type || "") && this.zip.has(m.href));
+      cover = candidates.find(m => /(^|[/_.-])cover([/_.-]|$)/i.test(m.href))?.href || null;
+    }
+    if (!cover) {
+      const coverPage = [...manifest.values()].find(m => /(^|[/_.-])cover([/_.-]|$)/i.test(m.href) && /html/i.test(m.type || ""));
+      if (coverPage && this.zip.has(coverPage.href)) {
+        try {
+          const page = new DOMParser().parseFromString(await this.zip.text(coverPage.href), "text/html");
+          const src = page.querySelector("img[src]")?.getAttribute("src") || page.querySelector("image")?.getAttribute("href") || page.querySelector("image")?.getAttribute("xlink:href");
+          if (src) cover = resolve(coverPage.href, src);
+        } catch {}
+      }
+    }
     this.coverPath = cover && this.zip.has(cover) ? cover : null;
     // table of contents
     try {
