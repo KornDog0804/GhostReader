@@ -70,3 +70,11 @@ h3.sec{margin:18px 0 10px;font-size:13px;letter-spacing:.14em;color:var(--dim);t
 /* iPad reading controls: keep reliable buttons above the book iframe */
 #rprev,#rnext{font-size:28px;min-width:38px;touch-action:manipulation}
 #tapL,#tapR,#tapM{touch-action:pan-y;cursor:pointer}
+
+/* iPad Safari: gesture surfaces MUST sit above the EPUB iframe.
+   Keep toolbar and chapter sheets above the gestures. */
+#stage{z-index:1;touch-action:pan-y}
+#page{position:absolute;inset:0;z-index:0;pointer-events:none}
+#tapL,#tapR,#tapM{z-index:2;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+#reader .bar{z-index:5}
+#reader .sheet{z-index:20}
