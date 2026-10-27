@@ -2,7 +2,7 @@ import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
 import { PageEngine } from "./page-engine.js";
 import * as DB from "./db.js";
-import { parseName, fetchCover } from "./covers.js";
+import { parseName, fetchCover, fetchGoogleCover } from "./covers.js";
 
 const $ = (s) => document.querySelector(s);
 const LS = {
@@ -28,7 +28,7 @@ async function coverSrc(it, store) {
   const key = `${store}:${it.id}`;
   try {
     const cached = await DB.get("covers", key);
-    if (cached && cached.data && (!it.cover || cached.size === it.cover.size)) return cached.data;
+    if (cached && cached.data && (cached.manual || !it.cover || cached.size === it.cover.size)) return cached.data;
   } catch {}
   let blob = it.cover;
   let data = null;
@@ -39,7 +39,7 @@ async function coverSrc(it, store) {
   if ((!data || data.length < 200) && store === "books" && !coverOnlineTried.has(key)) {
     // Last resort: look the book up online (once per visit).
     coverOnlineTried.add(key);
-    try { const c = await fetchCover(it.title, it.author); if (c) { blob = c; data = await blobToDataUrl(c); } } catch {}
+    try { const c = (await fetchCover(it.title, it.author)) || (await fetchGoogleCover(it.title, it.author)); if (c) { blob = c; data = await blobToDataUrl(c); } } catch {}
   }
   if (!data || data.length < 200) return null;
   try { await DB.put("covers", { key, size: blob.size, data }); } catch {}
@@ -95,7 +95,7 @@ document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("cli
 
 function showMenu(anchor, kind, id) {
   const m = $("#menu"), r = anchor.getBoundingClientRect();
-  m.innerHTML = `<button data-act="cover">Find cover again</button><button data-act="del">Remove from this device</button>`;
+  m.innerHTML = `<button data-act="cover">Find cover online</button><button data-act="pick">Choose cover image…</button><button data-act="del">Remove from this device</button>`;
   m.hidden = false;
   m.style.top = Math.min(r.bottom + 4, innerHeight - 110) + "px";
   m.style.left = Math.max(8, Math.min(r.right - 180, innerWidth - 190)) + "px";
@@ -104,7 +104,27 @@ function showMenu(anchor, kind, id) {
     m.hidden = true;
     const store = kind === "a" ? "audio" : "books";
     if (act === "del") { if (confirm("Remove this from the tablet?")) { await DB.del(store, id); DB.del("covers", `${store}:${id}`).catch(() => {}); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
-    if (act === "cover") { const it = await DB.get(store, id); const c = await fetchCover(it.title, it.author); if (c) { it.cover = c; await DB.put(store, it); renderLibrary(); } else setStatus("No matching cover found."); setTimeout(() => setStatus(""), 3000); }
+    const key = `${store}:${id}`;
+    if (act === "cover") {
+      setStatus("Looking for a cover…");
+      try { await DB.del("covers", key); } catch {}
+      coverOnlineTried.delete(key);
+      const it = await DB.get(store, id);
+      it.cover = null; // force a fresh search of the file, Open Library and Google Books
+      const src = await coverSrc(it, store);
+      setStatus(src ? "Found a cover." : "No cover found anywhere. Use Choose cover image… to pick one from Photos or Files.");
+      setTimeout(() => setStatus(""), 5000);
+      renderLibrary();
+    }
+    if (act === "pick") {
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = async () => {
+        const f = inp.files[0]; if (!f) return;
+        try { await DB.put("covers", { key, size: f.size, data: await blobToDataUrl(f), manual: true }); setStatus("Cover set."); } catch (e) { setStatus("Couldn't set that cover: " + e.message); }
+        setTimeout(() => setStatus(""), 4000); renderLibrary();
+      };
+      inp.click();
+    }
   };
 }
 

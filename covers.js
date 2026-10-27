@@ -41,3 +41,30 @@ export async function fetchCover(title, author) {
   }
   return null;
 }
+
+/** Second source: Google Books. Used when Open Library has nothing. */
+export async function fetchGoogleCover(title, author) {
+  const hasAuthor = !!author && !/^unknown/i.test(author);
+  const q = `intitle:${title}` + (hasAuthor ? `+inauthor:${author}` : "");
+  try {
+    const r = await fetch("https://www.googleapis.com/books/v1/volumes?maxResults=8&printType=books&q=" + encodeURIComponent(q).replace(/%2B/g, "+"));
+    const items = (await r.json()).items || [];
+    const want = norm(title);
+    for (const it of items) {
+      const v = it.volumeInfo || {};
+      const found = norm(v.title || "");
+      if (!found || !(found === want || found.startsWith(want) || want.startsWith(found))) continue;
+      if (hasAuthor) {
+        const last = norm(author).split(" ").pop();
+        if (last && !(v.authors || []).some((n) => norm(n).includes(last))) continue;
+      }
+      const link = v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail;
+      if (!link) continue;
+      const img = await fetch(link.replace(/^http:/, "https:").replace("zoom=1", "zoom=2").replace("&edge=curl", ""));
+      if (!img.ok) continue;
+      const blob = await img.blob();
+      if (blob.size > 3000) return blob;
+    }
+  } catch { /* offline or blocked */ }
+  return null;
+}
