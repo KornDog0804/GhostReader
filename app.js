@@ -261,6 +261,11 @@ function updateProgress() {
   LS.set(`gr:b:${R.id}`, { c: R.ci, f: R.page / R.pages, o, ts: Date.now() });
 }
 const toggleChrome = () => $("#reader").classList.toggle("chromeoff");
+// Transparent page-turn zones sit above the EPUB iframe on iPad Safari.
+// Without handlers they swallow taps, leaving the book stuck on its first page.
+$("#tapL").addEventListener("click", () => turn(-1));
+$("#tapR").addEventListener("click", () => turn(1));
+$("#tapM").addEventListener("click", toggleChrome);
 $("#rslide").addEventListener("change", (e) => {
   const v = Number(e.target.value) / 1000 * R.epub.spine.length;
   showChapter(Math.floor(v), { frac: v - Math.floor(v) });
