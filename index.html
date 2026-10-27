@@ -23,7 +23,8 @@
     </header>
     <nav class="tabs">
       <button data-tab="books" class="on">Books</button>
-      <button data-tab="audio">Audiobooks</button>
+      <button data-tab="comics">Comics</button>
+      <button data-tab="manga">Manga</button>
     </nav>
     <div id="status" class="status" hidden></div>
     <div id="continue"></div>
@@ -31,7 +32,7 @@
     <div id="empty" class="empty" hidden>
       <div class="emptyart">👻</div>
       <h2>Your shelf is empty</h2>
-      <p>Add EPUB books or audiobooks from this tablet or Google Drive. You can also add the whole library ZIP saved from the GhostReader phone app.</p>
+      <p>Add EPUB books, PDF documents, or CBZ comics from your tablet or Google Drive.</p>
       <button class="pill primary big" id="add2">Add books</button>
     </div>
   </section>
@@ -59,6 +60,7 @@
     </aside>
   </section>
 
+  <section id="comicreader" class="view" hidden><header class="bar"><button id="cback" class="icon" aria-label="Back">‹</button><div class="rtitle"><b id="ctitle"></b><small id="cprogress"></small></div><button id="cmode" class="pill">Page</button><button id="cdir" class="pill">LTR</button></header><div id="comicstage"><img id="comicpage" alt="Comic page"><iframe id="pdfpage" title="PDF reader" hidden></iframe></div><footer class="bar" id="comicbar"><button id="cprev" class="pill">Previous</button><input id="cslide" type="range" min="1" max="1" value="1"><button id="cnext" class="pill">Next</button></footer></section>
   <section id="player" class="view" hidden>
     <header class="bar"><button id="pback" class="icon" aria-label="Back">‹</button><div class="rtitle"><b>Audiobook</b></div></header>
     <div class="pbody">
@@ -77,7 +79,7 @@
   </section>
 </div>
 <div id="menu" class="menu" hidden></div>
-<input id="file" type="file" multiple hidden>
+<input id="file" type="file" multiple accept=".epub,.pdf,.cbz,.zip" hidden>
 <script type="module" src="app.js"></script>
 </body>
 </html>
