@@ -260,7 +260,7 @@ gestureLayer.addEventListener("pointerup", e => {
   gestureStart=null;
   if(Math.abs(dx)>=40 && Math.abs(dx)>Math.abs(dy)*1.2){
     suppressTapUntil=Date.now()+500;
-    turn(dx<0?1:-1);
+    turn(dx>0?1:-1);
   }
 }, {passive:true});
 gestureLayer.addEventListener("pointercancel",()=>{gestureStart=null;});
