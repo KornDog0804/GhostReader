@@ -2,6 +2,10 @@ package com.korndog.ghostreader
 
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import java.security.MessageDigest
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
@@ -291,6 +295,12 @@ private fun entryId(entry: ShelfEntry): String =
     entry.book?.let { "book:" + it.file.absolutePath + "#" + it.sectionPrefix }
         ?: "audio:" + entry.audio!!.absolutePath
 
+private fun manualCoverFile(context: android.content.Context, entry: ShelfEntry): File {
+    val digest = MessageDigest.getInstance("SHA-256").digest(entryId(entry).toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+    return File(File(context.filesDir, "manual_covers").apply { mkdirs() }, "$digest.jpg")
+}
+
 /** My Library: cover tiles with Books, Authors and Series tabs, and search. */
 @Composable
 internal fun LibraryScreen(
@@ -310,11 +320,37 @@ internal fun LibraryScreen(
         }.getOrDefault(emptyList())
     ) }
     var menuEntry by remember { mutableStateOf<ShelfEntry?>(null) }
+    var coverTarget by remember { mutableStateOf<ShelfEntry?>(null) }
+    var artworkRevision by remember { mutableIntStateOf(0) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val target = coverTarget
+        if (uri != null && target != null) {
+            runCatching {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Unable to read image")
+                require(bytes.size <= 20_000_000) { "Image exceeds 20 MB" }
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: error("Invalid image")
+                val destination = manualCoverFile(context, target)
+                val temporary = File(destination.parentFile, destination.name + ".tmp")
+                try {
+                    temporary.outputStream().use {
+                        check(bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)) { "Image conversion failed" }
+                    }
+                    if (!temporary.renameTo(destination)) temporary.copyTo(destination, overwrite = true)
+                } finally { temporary.delete() }
+                artworkRevision++
+            }.onFailure {
+                android.widget.Toast.makeText(context, it.message ?: "Could not save cover", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        coverTarget = null
+    }
     var tab by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
-    val loaded by produceState<List<ShelfEntry>?>(null, books, audio) {
+    val loaded by produceState<List<ShelfEntry>?>(null, books, audio, artworkRevision) {
         value = withContext(Dispatchers.IO) {
             val ebooks = books.map { book ->
                 val meta = runCatching { readVolumeMetadata(book) }.getOrNull()
@@ -325,7 +361,11 @@ internal fun LibraryScreen(
                 val title = info?.title ?: file.nameWithoutExtension
                 ShelfEntry(null, file, title, info?.author.orEmpty(), info?.cover, info?.durationMs ?: 0L, seriesOf(title))
             }
-            audios + ebooks
+            (audios + ebooks).map { entry ->
+                val coverFile = manualCoverFile(context, entry)
+                val chosen = if (coverFile.exists()) runCatching { BitmapFactory.decodeFile(coverFile.absolutePath) }.getOrNull() else null
+                if (chosen != null) entry.copy(cover = chosen) else entry
+            }
         }
     }
 
@@ -360,6 +400,18 @@ internal fun LibraryScreen(
             text = {
                 Column {
                     Text("Shelf position ${position + 1} of ${orderedEntries.size}. Arrange books your way.")
+                    TextButton(onClick = {
+                        coverTarget = entry
+                        menuEntry = null
+                        coverPicker.launch("image/*")
+                    }) { Text("Change cover") }
+                    if (manualCoverFile(context, entry).exists()) {
+                        TextButton(onClick = {
+                            manualCoverFile(context, entry).delete()
+                            artworkRevision++
+                            menuEntry = null
+                        }) { Text("Reset cover to automatic") }
+                    }
                     TextButton(onClick = { moveEntry(entry, -1) }, enabled = position > 0) { Text("↑ Move up one") }
                     TextButton(onClick = { moveEntry(entry, 1) }, enabled = position in 0 until orderedEntries.lastIndex) { Text("↓ Move down one") }
                     TextButton(onClick = { moveEntry(entry, -position) }, enabled = position > 0) { Text("Move to beginning") }
