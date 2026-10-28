@@ -47,7 +47,7 @@ internal object CoverStore {
     private fun folder(context: Context) = File(context.filesDir, "covers").apply { mkdirs() }
 
     private fun key(title: String, author: String) =
-        ("v2|" + title.trim().lowercase() + "|" + author.trim().lowercase()).hashCode().toUInt().toString(16)
+        ("v3|" + title.trim().lowercase() + "|" + author.trim().lowercase()).hashCode().toUInt().toString(16)
 
     private fun get(url: String): ByteArray? {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -82,10 +82,22 @@ internal object CoverStore {
                 for (withAuthor in if (hasAuthor) listOf(true, false) else listOf(false)) {
                     val query = "https://openlibrary.org/search.json?title=${URLEncoder.encode(t, "UTF-8")}" +
                         (if (withAuthor) "&author=${URLEncoder.encode(author, "UTF-8")}" else "") +
-                        "&limit=5&fields=cover_i"
+                        "&limit=10&fields=cover_i,title,author_name"
                     val docs = runCatching { JSONObject(String(get(query) ?: error("no result"))).getJSONArray("docs") }.getOrNull() ?: continue
                     for (i in 0 until docs.length()) {
-                        coverId = docs.getJSONObject(i).optLong("cover_i", 0L)
+                        val doc = docs.getJSONObject(i)
+                        val normalize = { v: String -> v.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim() }
+                        val wanted = normalize(t)
+                        val found = normalize(doc.optString("title"))
+                        if (wanted.isBlank() || !(found == wanted || found.startsWith("$wanted ") || wanted.startsWith("$found "))) continue
+                        if (hasAuthor) {
+                            val names = doc.optJSONArray("author_name")
+                            if (names == null || (0 until names.length()).none { n ->
+                                val candidate = normalize(names.optString(n))
+                                candidate.isNotBlank() && (candidate.contains(normalize(author)) || normalize(author).contains(candidate))
+                            }) continue
+                        }
+                        coverId = doc.optLong("cover_i", 0L)
                         if (coverId > 0) break
                     }
                     if (coverId > 0) break
