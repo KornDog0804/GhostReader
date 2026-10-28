@@ -351,7 +351,14 @@ internal fun formatShelfDuration(ms: Long): String {
 }
 
 internal fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
- val fallback = file.nameWithoutExtension.replace(Regex("^\\d+_"), "").replace('_', ' ').replace(Regex("\\s+"), " ").trim()
+ val fallback = file.nameWithoutExtension
+  .replace(Regex("(?i)^gr_\\d+_\\d+_[^_]+_"), "")
+  .replace(Regex("(?i)^gr_\\d+_"), "")
+  .replace(Regex("^\\d+_"), "")
+  .replace('_', ' ')
+  .replace(Regex("\\s+"), " ")
+  .trim()
+  .ifBlank { "Unknown audiobook" }
  val retriever = android.media.MediaMetadataRetriever()
  return try {
   retriever.setDataSource(file.absolutePath)
