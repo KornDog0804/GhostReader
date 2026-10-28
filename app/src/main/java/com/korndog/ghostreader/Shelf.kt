@@ -84,6 +84,25 @@ internal fun seriesOf(title: String): String {
     return ""
 }
 
+/** Canonical series order. Other books keep their alphabetical order. */
+private val dungeonCarlOrder = listOf(
+    "Dungeon Crawler Carl",
+    "Carl's Doomsday Scenario",
+    "The Dungeon Anarchist's Cookbook",
+    "The Gate of the Feral Gods",
+    "The Butcher's Masquerade",
+    "The Eye of the Bedlam Bride",
+    "This Inevitable Ruin",
+    "A Parade of Horribles"
+)
+private fun shelfOrder(entry: ShelfEntry): Pair<Int, String> {
+    val title = entry.title.lowercase().replace('’', '\'')
+    val index = dungeonCarlOrder.indexOfFirst { title.contains(it.lowercase()) }
+    return if (index >= 0) Pair(index, "") else Pair(100, title)
+}
+private fun orderedShelf(entries: List<ShelfEntry>) =
+    entries.sortedWith(compareBy<ShelfEntry> { shelfOrder(it).first }.thenBy { shelfOrder(it).second })
+
 // ---------------------------------------------------------------- home
 
 /** The front door: the GhostReader art with My Library and Add Books. */
@@ -231,7 +250,7 @@ private fun GroupList(
                 Text(current.first, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${current.second.size}", color = Color(0xFF9B8DB0))
             }
-            Box(Modifier.weight(1f)) { EntryGrid(current.second, onOpen, onLong) }
+            Box(Modifier.weight(1f)) { EntryGrid(orderedShelf(current.second), onOpen, onLong) }
         }
     } else if (groups.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -334,7 +353,7 @@ internal fun LibraryScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-                } else EntryGrid(entries, open, long)
+                } else EntryGrid(orderedShelf(entries), open, long)
 
                 tab == 1 -> GroupList(
                     groups = entries.groupBy { it.author.ifBlank { "Unknown author" } }
