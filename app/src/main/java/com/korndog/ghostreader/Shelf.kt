@@ -97,7 +97,7 @@ private val dungeonCarlOrder = listOf(
 )
 private fun shelfOrder(entry: ShelfEntry): Pair<Int, String> {
     val title = entry.title.lowercase().replace('’', '\'')
-    val index = dungeonCarlOrder.indexOfFirst { title.contains(it.lowercase()) }
+    val index = dungeonCarlOrder.indexOfFirst { title == it.lowercase() || title.startsWith(it.lowercase() + ":") || title.startsWith(it.lowercase() + " ") || title.startsWith(it.lowercase() + ",") }
     return if (index >= 0) Pair(index, "") else Pair(100, title)
 }
 private fun orderedShelf(entries: List<ShelfEntry>) =
