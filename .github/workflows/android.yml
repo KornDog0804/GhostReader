@@ -1,7 +1,7 @@
 name: Android debug APK
 on:
   push:
-    branches: [main]
+    branches: [main, polish]
   workflow_dispatch:
 jobs:
   build:
