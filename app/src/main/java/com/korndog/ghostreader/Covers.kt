@@ -47,7 +47,7 @@ internal object CoverStore {
     private fun folder(context: Context) = File(context.filesDir, "covers").apply { mkdirs() }
 
     private fun key(title: String, author: String) =
-        (title.trim().lowercase() + "|" + author.trim().lowercase()).hashCode().toUInt().toString(16)
+        ("v2|" + title.trim().lowercase() + "|" + author.trim().lowercase()).hashCode().toUInt().toString(16)
 
     private fun get(url: String): ByteArray? {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
