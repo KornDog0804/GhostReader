@@ -117,19 +117,27 @@ class BookTorrentEngine(private val context: Context) {
   }
   if (cancelled) error("Download cancelled")
   if (!pieces.all { th.havePiece(it) }) error("Complete audiobook download timed out")
-  val folderName = options.first().name.substringBeforeLast('/', "Audiobook").substringAfterLast('/')
-   .replace(Regex("[^a-zA-Z0-9._ -]"), "_").take(90).ifBlank { "Audiobook" }
-  val target = File(shelf, "${System.currentTimeMillis()}_${folderName}").apply { mkdirs() }
+  // Each full-length M4B is a separate book. Copy files into the same
+  // top-level audio shelf used by scanAudioFiles(), rather than hiding
+  // the entire torrent in a directory the shelf never scans.
+  val imported = mutableListOf<File>()
   try {
    options.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).forEachIndexed { order, opt ->
     val source = File(work, opt.name)
-    require(source.canonicalPath.startsWith(work.canonicalPath + File.separator) && source.isFile) { "Missing or unsafe track" }
+    require(source.canonicalPath.startsWith(work.canonicalPath + File.separator) && source.isFile) { "Missing or unsafe audiobook file" }
     val name = File(opt.name).name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
-    source.copyTo(File(target, "${order.toString().padStart(3, '0')}_${name}"))
+    val target = File(shelf, "${System.currentTimeMillis()}_${order.toString().padStart(3, '0')}_${name}")
+    source.copyTo(target, overwrite = false)
+    imported.add(target)
+    progress("Adding audiobook ${order + 1} of ${options.size} to shelf")
    }
-  } catch (e: Exception) { target.deleteRecursively(); throw e }
-  progress("Complete audiobook downloaded: ${options.size} tracks")
-  return target
+  } catch (e: Exception) {
+   imported.forEach { runCatching { it.delete() } }
+   throw e
+  }
+  progress("Added ${imported.size} separate audiobooks to your library")
+  return imported.first()
+
  }
 
  fun cancel() {
