@@ -2,6 +2,10 @@ package com.korndog.ghostreader
 
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import org.json.JSONArray
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -283,6 +287,10 @@ private fun GroupList(
     }
 }
 
+private fun entryId(entry: ShelfEntry): String =
+    entry.book?.let { "book:" + it.file.absolutePath + "#" + it.sectionPrefix }
+        ?: "audio:" + entry.audio!!.absolutePath
+
 /** My Library: cover tiles with Books, Authors and Series tabs, and search. */
 @Composable
 internal fun LibraryScreen(
@@ -293,6 +301,15 @@ internal fun LibraryScreen(
     onOpenAudio: (File) -> Unit,
     onDeleteAudio: (File) -> Unit
 ) {
+    val context = LocalContext.current
+    val orderPrefs = remember { context.getSharedPreferences("ghostreader_shelf_order", android.content.Context.MODE_PRIVATE) }
+    var manualOrder by remember { mutableStateOf(
+        runCatching {
+            val array = JSONArray(orderPrefs.getString("order", "[]"))
+            (0 until array.length()).map { array.getString(it) }
+        }.getOrDefault(emptyList())
+    ) }
+    var menuEntry by remember { mutableStateOf<ShelfEntry?>(null) }
     var tab by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -315,9 +332,49 @@ internal fun LibraryScreen(
     val entries = loaded.orEmpty().filter {
         query.isBlank() || it.title.contains(query, true) || it.author.contains(query, true)
     }
+    val orderedEntries = remember(entries, manualOrder) {
+        val byId = entries.associateBy(::entryId)
+        val pinned = manualOrder.mapNotNull(byId::get)
+        val pinnedIds = pinned.map(::entryId).toSet()
+        pinned + orderedShelf(entries.filterNot { entryId(it) in pinnedIds })
+    }
+    fun moveEntry(entry: ShelfEntry, delta: Int) {
+        // Capture the entire visible shelf order so one move cannot reshuffle the other titles.
+        val ids = orderedEntries.map(::entryId).toMutableList()
+        val old = ids.indexOf(entryId(entry))
+        if (old < 0) return
+        val next = (old + delta).coerceIn(0, ids.lastIndex)
+        if (next == old) return
+        ids.add(next, ids.removeAt(old))
+        manualOrder = ids
+        orderPrefs.edit().putString("order", JSONArray(ids).toString()).apply()
+    }
     val open: (ShelfEntry) -> Unit = { e -> e.book?.let(onOpenBook) ?: e.audio?.let(onOpenAudio) }
-    val long: (ShelfEntry) -> Unit = { e -> e.book?.let(onDeleteBook) ?: e.audio?.let(onDeleteAudio) }
+    val long: (ShelfEntry) -> Unit = { e -> menuEntry = e }
 
+    menuEntry?.let { entry ->
+        val position = orderedEntries.indexOfFirst { entryId(it) == entryId(entry) }
+        AlertDialog(
+            onDismissRequest = { menuEntry = null },
+            title = { Text(entry.title) },
+            text = {
+                Column {
+                    Text("Shelf position ${position + 1} of ${orderedEntries.size}. Arrange books your way.")
+                    TextButton(onClick = { moveEntry(entry, -1) }, enabled = position > 0) { Text("↑ Move up one") }
+                    TextButton(onClick = { moveEntry(entry, 1) }, enabled = position in 0 until orderedEntries.lastIndex) { Text("↓ Move down one") }
+                    TextButton(onClick = { moveEntry(entry, -position) }, enabled = position > 0) { Text("Move to beginning") }
+                    TextButton(onClick = { moveEntry(entry, orderedEntries.lastIndex - position) }, enabled = position in 0 until orderedEntries.lastIndex) { Text("Move to end") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { menuEntry = null }) { Text("Done") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    menuEntry = null
+                    entry.book?.let(onDeleteBook) ?: entry.audio?.let(onDeleteAudio)
+                }) { Text("Delete") }
+            }
+        )
+    }
     Column(Modifier.fillMaxSize().background(screenBg).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("My Library", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -353,7 +410,7 @@ internal fun LibraryScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-                } else EntryGrid(orderedShelf(entries), open, long)
+                } else EntryGrid(orderedEntries, open, long)
 
                 tab == 1 -> GroupList(
                     groups = entries.groupBy { it.author.ifBlank { "Unknown author" } }
