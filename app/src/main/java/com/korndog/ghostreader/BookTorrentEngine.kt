@@ -86,7 +86,11 @@ class BookTorrentEngine(private val context: Context) {
   }
  }
 
- /** Download all audio tracks as one folder, preserving track order and original filenames. */
+ /** Download files sequentially, immediately placing each completed book on the shelf.
+  * Completed books survive cancellation or a later file failure.
+  * Torrent pieces can overlap file boundaries, so keep already completed pieces
+  * available and do not remove the torrent's working directory until stopped.
+  */
  private fun downloadAudioBatchFromHandle(
   th: TorrentHandle,
   info: org.libtorrent4j.TorrentInfo,
@@ -96,48 +100,64 @@ class BookTorrentEngine(private val context: Context) {
   work: File,
   progress: (String) -> Unit
  ): File {
-  val totalBytes = options.sumOf { it.bytes }
-  require(totalBytes <= 12_000_000_000L) { "Audiobook collection exceeds 12 GB safety limit" }
-  require(shelf.usableSpace > totalBytes * 2 + 150_000_000L) { "Not enough storage for the complete audiobook and temporary download" }
-  val selected = options.map { it.index }.toSet()
-  th.prioritizeFiles(Array(info.numFiles()) { if (it in selected) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE })
-  th.resume()
+  require(options.isNotEmpty()) { "No audio files selected" }
+  shelf.mkdirs()
+  require(shelf.isDirectory) { "Audiobook library is unavailable" }
+  val ordered = options.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
   val pieceSize = info.pieceLength().toLong()
-  val pieces = options.flatMap { opt ->
-   val first = (files.fileOffset(opt.index) / pieceSize).toInt()
-   val last = ((files.fileOffset(opt.index) + opt.bytes - 1) / pieceSize).toInt()
-   (first..last).toList()
-  }.toSet()
-  val deadline = System.currentTimeMillis() + 12 * 60 * 60_000L
-  while (!cancelled && System.currentTimeMillis() < deadline) {
-   val ready = pieces.count { th.havePiece(it) }
-   progress("Downloading complete audiobook: ${ready * 100 / pieces.size}% (${options.size} tracks)")
-   if (ready == pieces.size) break
-   Thread.sleep(2000)
+  val reserve = 200_000_000L
+  val largest = ordered.maxOf { it.bytes }
+  // A piece may span the end of one file and the start of another.
+  // Only one full file and boundary pieces should need temporary space.
+  val required = largest + 2 * pieceSize + reserve
+  require(shelf.usableSpace > required) {
+   "Not enough storage for the largest book: need ${required / 1_000_000L} MB free, have ${shelf.usableSpace / 1_000_000L} MB"
   }
-  if (cancelled) error("Download cancelled")
-  if (!pieces.all { th.havePiece(it) }) error("Complete audiobook download timed out")
-  // Each full-length M4B is a separate book. Copy files into the same
-  // top-level audio shelf used by scanAudioFiles(), rather than hiding
-  // the entire torrent in a directory the shelf never scans.
   val imported = mutableListOf<File>()
-  try {
-   options.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).forEachIndexed { order, opt ->
-    val source = File(work, opt.name)
-    require(source.canonicalPath.startsWith(work.canonicalPath + File.separator) && source.isFile) { "Missing or unsafe audiobook file" }
-    val name = File(opt.name).name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
-    val target = File(shelf, "${System.currentTimeMillis()}_${order.toString().padStart(3, '0')}_${name}")
-    source.copyTo(target, overwrite = false)
-    imported.add(target)
-    progress("Adding audiobook ${order + 1} of ${options.size} to shelf")
+  val finished = mutableSetOf<Int>()
+  val deadline = System.currentTimeMillis() + 24 * 60 * 60_000L
+  for ((order, opt) in ordered.withIndex()) {
+   if (cancelled) error("Download cancelled; ${imported.size} completed books remain in your library")
+   val freeNeeded = opt.bytes + 2 * pieceSize + reserve
+   require(shelf.usableSpace > freeNeeded) {
+    "Storage low before book ${order + 1}: need ${freeNeeded / 1_000_000L} MB free, have ${shelf.usableSpace / 1_000_000L} MB. ${imported.size} completed books were saved."
    }
-  } catch (e: Exception) {
-   imported.forEach { runCatching { it.delete() } }
-   throw e
+   // Only request this file. Completed files have been moved out of the
+   // torrent work directory; they are never copied a second time.
+   th.prioritizeFiles(Array(info.numFiles()) {
+    if (it == opt.index) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE
+   })
+   th.resume()
+   val offset = files.fileOffset(opt.index)
+   val first = (offset / pieceSize).toInt()
+   val last = ((offset + opt.bytes - 1) / pieceSize).toInt()
+   val total = last - first + 1
+   while (!cancelled && System.currentTimeMillis() < deadline) {
+    val ready = (first..last).count { th.havePiece(it) }
+    progress("Book ${order + 1}/${ordered.size}: ${ready * 100 / total}% • ${imported.size} saved")
+    if (ready == total) break
+    Thread.sleep(2000)
+   }
+   if (cancelled) error("Download cancelled; ${imported.size} completed books remain in your library")
+   if (!(first..last).all { th.havePiece(it) }) error("Book ${order + 1} timed out; ${imported.size} completed books remain in your library")
+   val source = File(work, opt.name)
+   require(source.canonicalPath.startsWith(work.canonicalPath + File.separator) && source.isFile && source.length() >= opt.bytes) {
+    "Downloaded book ${order + 1} is incomplete; ${imported.size} completed books remain saved"
+   }
+   val name = File(opt.name).name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
+   val target = File.createTempFile("gr_${System.currentTimeMillis()}_${order}_", "_${name}", shelf)
+   target.delete()
+   // Both directories are app-private on the same volume in normal installs.
+   // Never fall back to a silent full-size copy when storage is constrained.
+   require(source.renameTo(target)) {
+    "Unable to move book ${order + 1} into library without duplicating it; ${imported.size} books already saved"
+   }
+   imported.add(target)
+   finished.add(opt.index)
+   progress("Saved ${order + 1} of ${ordered.size}: ${name}")
   }
-  progress("Added ${imported.size} separate audiobooks to your library")
+  progress("Added ${imported.size} audiobooks to your library")
   return imported.first()
-
  }
 
  fun cancel() {
