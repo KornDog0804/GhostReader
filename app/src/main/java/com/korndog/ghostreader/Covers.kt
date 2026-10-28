@@ -92,7 +92,44 @@ internal object CoverStore {
                 }
                 if (coverId > 0) break
             }
-            if (coverId <= 0) error("no cover")
+            if (coverId <= 0) {
+                // Open Library does not have every audiobook edition. Try Google Books,
+                // but only accept a title match to avoid unrelated artwork.
+                val normalized = { value: String ->
+                    value.lowercase().replace('’', '\'')
+                        .replace(Regex("[^a-z0-9]+"), " ").trim()
+                }
+                for (candidate in tries) {
+                    val query = "https://www.googleapis.com/books/v1/volumes?q=" +
+                        URLEncoder.encode("intitle:\"$candidate\"" + if (hasAuthor) " inauthor:\"$author\"" else "", "UTF-8") +
+                        "&maxResults=10&printType=books"
+                    val items = runCatching {
+                        JSONObject(String(get(query) ?: error("no result"))).optJSONArray("items")
+                    }.getOrNull() ?: continue
+                    for (i in 0 until items.length()) {
+                        val volume = items.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
+                        val foundTitle = volume.optString("title")
+                        val wanted = normalized(candidate)
+                        val found = normalized(foundTitle)
+                        if (wanted.isBlank() || !(found == wanted || found.startsWith("$wanted ") || wanted.startsWith("$found "))) continue
+                        val authors = volume.optJSONArray("authors")
+                        if (hasAuthor && authors != null && (0 until authors.length()).none {
+                            normalized(authors.optString(it)).contains(normalized(author)) ||
+                                normalized(author).contains(normalized(authors.optString(it)))
+                        }) continue
+                        val images = volume.optJSONObject("imageLinks") ?: continue
+                        val imageUrl = images.optString("thumbnail", images.optString("smallThumbnail", ""))
+                            .replace("http://", "https://")
+                        if (!imageUrl.startsWith("https://")) continue
+                        val image = runCatching { get(imageUrl) }.getOrNull() ?: continue
+                        if (image.size < 4000) continue
+                        val bitmap = runCatching { decodeBitmap(image) }.getOrNull() ?: continue
+                        file.writeBytes(image)
+                        return bitmap
+                    }
+                }
+                error("no matching cover")
+            }
             val image = get("https://covers.openlibrary.org/b/id/$coverId-L.jpg?default=false") ?: error("no image")
             if (image.size < 4000) error("too small")
             file.writeBytes(image)
