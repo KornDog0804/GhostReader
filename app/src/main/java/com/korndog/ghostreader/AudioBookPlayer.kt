@@ -54,14 +54,24 @@ private fun audioMetadata(file: File): AudioMetadata {
 @Composable
 internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -> Unit, onClose: () -> Unit) {
  val meta = remember(file.absolutePath) { audioMetadata(file) }
+ val shelfMeta = remember(file.absolutePath) { runCatching { readShelfAudioMetadata(file) }.getOrNull() }
+ val displayTitle = shelfMeta?.title?.takeIf { it.isNotBlank() } ?: meta.title
+ val displayAuthor = shelfMeta?.author?.takeIf { it.isNotBlank() } ?: meta.author
  val context = LocalContext.current
  androidx.activity.compose.BackHandler { onClose() }
- // No art inside the file: look the book up, the same way the library shelf does.
+ // Match the shelf's per-file manual artwork before embedded or online covers.
+ val manualCover = remember(file.absolutePath) {
+  val digest = java.security.MessageDigest.getInstance("SHA-256")
+   .digest(("audio:" + file.absolutePath).toByteArray(Charsets.UTF_8))
+   .joinToString("") { "%02x".format(it) }
+  runCatching { BitmapFactory.decodeFile(File(File(context.filesDir, "manual_covers"), "$digest.jpg").absolutePath) }.getOrNull()
+ }
+ // Automatic artwork is only a fallback when neither manual nor embedded art exists.
  var fetchedCover by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
  LaunchedEffect(file.absolutePath) {
-  if (meta.cover == null) fetchedCover = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { CoverStore.fetch(context, meta.title, meta.author.takeUnless { it == "YOUR AUDIOBOOK" }.orEmpty()) }.getOrNull() }
+  if (manualCover == null && shelfMeta?.cover == null && meta.cover == null) fetchedCover = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { CoverStore.fetch(context, displayTitle, displayAuthor.takeUnless { it == "YOUR AUDIOBOOK" }.orEmpty()) }.getOrNull() }
  }
- val coverArt = meta.cover ?: fetchedCover
+ val coverArt = manualCover ?: shelfMeta?.cover ?: meta.cover ?: fetchedCover
  var player by remember(file.absolutePath) { mutableStateOf<MediaController?>(null) }
  var playing by remember(file.absolutePath) { mutableStateOf(false) }
  var position by remember(file.absolutePath) { mutableIntStateOf(savedPosition) }
@@ -82,7 +92,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
      val sameFile = controller.currentMediaItem?.localConfiguration?.uri == uri
      if (!sameFile) {
       controller.setMediaItem(MediaItem.Builder().setUri(uri).setMediaMetadata(
-       MediaMetadata.Builder().setTitle(meta.title).setArtist(meta.author).build()
+       MediaMetadata.Builder().setTitle(displayTitle).setArtist(displayAuthor).build()
       ).build())
       controller.prepare()
       controller.seekTo(savedPosition.toLong().coerceAtLeast(0))
@@ -144,9 +154,9 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    }
   }
   Spacer(Modifier.height(25.dp))
-  Text(meta.title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
+  Text(displayTitle, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
   Spacer(Modifier.height(5.dp))
-  Text(meta.author, color = purple, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 2)
+  Text(displayAuthor, color = purple, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 2)
   Spacer(Modifier.height(25.dp))
   if (failure != null) Text("Playback error: $failure", color = Color(0xFFFF9999))
   Slider(
