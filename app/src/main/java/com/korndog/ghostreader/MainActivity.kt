@@ -114,6 +114,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var showTools by remember { mutableStateOf(false) }
  var backupBusy by remember { mutableStateOf(false) }
  var backupStatus by remember { mutableStateOf("") }
+ var savedBackupUri by remember { mutableStateOf<android.net.Uri?>(null) }
  var backupPercent by remember { mutableIntStateOf(0) }
  var backupPhase by remember { mutableStateOf("") }
  var torrentBusy by remember { mutableStateOf(false) }
@@ -170,7 +171,15 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    backupStatus = "Preparing backup..."
    backupWorker.execute {
     val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) { percent, detail -> uiHandler.post { backupPercent = percent; backupStatus = detail } } }
-    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Check the ZIP in your selected location." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
+    val info = runCatching {
+     ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+      if (c.moveToFirst()) (c.getString(0) ?: "GhostReader-Library.zip") to (if (c.isNull(1)) 0L else c.getLong(1)) else null
+     }
+    }.getOrNull()
+    uiHandler.post { backupBusy = false; result.onSuccess {
+     savedBackupUri = uri
+     val mb = (info?.second ?: 0L) / 1_000_000
+     backupStatus = "Saved " + (info?.first ?: "GhostReader-Library.zip") + (if (mb > 0) " ($mb MB)" else "") + ". Tap Open saved file to find it. If Drive shows 0 KB, give it a few minutes to finish uploading." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
    }
   }
  }
@@ -292,6 +301,13 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
          }
         }
         if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
+        savedBackupUri?.let { saved ->
+         if (!backupBusy) OutlinedButton(onClick = {
+          runCatching {
+           ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(saved, "application/zip").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+          }.onFailure { error = "Could not open the saved file. It is in the Drive folder you picked." }
+         }) { Text("Open saved file") }
+        }
       }
      }
     }
