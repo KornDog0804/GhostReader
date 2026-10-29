@@ -13,10 +13,27 @@ internal object LibraryBackup {
  private const val LIMIT = 12L * 1024 * 1024 * 1024
  private const val MAX_BOOKS = 2000
 
- fun export(context: Context, destination: Uri): Int {
+ fun export(context: Context, destination: Uri, progress: (Int, String) -> Unit = { _, _ -> }): Int {
   val shelf = File(context.filesDir, "books")
   val books = shelf.listFiles()?.filter { it.isFile && it.extension.equals("epub", true) } ?: emptyList()
   val audio = File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: emptyList()
+  val allFiles = audio + books
+  val totalBytes = allFiles.sumOf { it.length().coerceAtLeast(0L) }.coerceAtLeast(1L)
+  var processed = 0L
+  progress(0, "Preparing ${allFiles.size} files")
+  fun writeFile(file: File, zip: ZipOutputStream) {
+   progress(((processed * 100) / totalBytes).toInt().coerceIn(0, 99), "Saving " + file.name)
+   file.inputStream().use { input ->
+    val buffer = ByteArray(64 * 1024)
+    while (true) {
+     val n = input.read(buffer)
+     if (n < 0) break
+     zip.write(buffer, 0, n)
+     processed += n
+     progress(((processed * 100) / totalBytes).toInt().coerceIn(0, 99), "Saving " + file.name)
+    }
+   }
+  }
   val prefs = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
   val settings = JSONObject()
   prefs.all.forEach { (key, value) ->
@@ -35,7 +52,7 @@ internal object LibraryBackup {
     audio.forEachIndexed { index, file ->
      val id = index.toString().padStart(4, '0')
      zip.putNextEntry(ZipEntry("audio/$id.bin"))
-     file.inputStream().use { it.copyTo(zip) }
+     writeFile(file, zip)
      zip.closeEntry()
      zip.putNextEntry(ZipEntry("audionames/$id.txt"))
      zip.write(file.name.toByteArray(Charsets.UTF_8))
@@ -43,7 +60,7 @@ internal object LibraryBackup {
     }
     books.forEachIndexed { index, book ->
      zip.putNextEntry(ZipEntry("books/${index.toString().padStart(4, '0')}.epub"))
-     book.inputStream().use { it.copyTo(zip) }
+     writeFile(book, zip)
      zip.closeEntry()
      zip.putNextEntry(ZipEntry("names/${index.toString().padStart(4, '0')}.txt"))
      zip.write(book.name.toByteArray(Charsets.UTF_8))
@@ -51,6 +68,7 @@ internal object LibraryBackup {
     }
    }
   }
+  progress(100, "Backup saved")
   return books.size
  }
 
