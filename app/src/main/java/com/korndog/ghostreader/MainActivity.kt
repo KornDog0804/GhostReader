@@ -164,7 +164,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    backupBusy = true
    torrentWorker.execute {
     val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) }
-    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Keep this ZIP in Google Drive for tablet access." }.onFailure { error = "Backup failed: ${it.message}" } }
+    uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Check the ZIP in your selected location." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
    }
   }
  }
@@ -173,7 +173,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    backupBusy = true
    torrentWorker.execute {
     val result = runCatching { LibraryBackup.restore(ctx.applicationContext, uri) }
-    uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it ebooks, available audiobooks and saved progress"; audioFiles = scanAudioFiles(File(ctx.filesDir, "audio")) }.onFailure { error = "Restore failed: ${it.message}" } }
+    uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it ebooks, available audiobooks and saved progress"; audioFiles = scanAudioFiles(File(ctx.filesDir, "audio")) }.onFailure { backupStatus = "Restore failed: ${it.message}"; error = backupStatus } }
    }
   }
  }
