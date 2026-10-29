@@ -119,6 +119,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var torrentBusy by remember { mutableStateOf(false) }
  var torrentStatus by remember { mutableStateOf("") }
  val torrentWorker = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
+ val backupWorker = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
  val uiHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
  var torrentEngine by remember { mutableStateOf<BookTorrentEngine?>(null) }
  fun downloadMagnet() {
