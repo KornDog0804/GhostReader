@@ -179,7 +179,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     uiHandler.post { backupBusy = false; result.onSuccess {
      savedBackupUri = uri
      val mb = (info?.second ?: 0L) / 1_000_000
-     backupStatus = "Saved " + (info?.first ?: "GhostReader-Library.zip") + (if (mb > 0) " ($mb MB)" else "") + ". Tap Open saved file to find it. If Drive shows 0 KB, give it a few minutes to finish uploading." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
+     backupStatus = "Saved " + (info?.first ?: "GhostReader-Library.zip") + (if (mb > 0) " ($mb MB)" else "") + ". Tap Open saved file to find it. A copy is also in your phone Downloads folder. If Drive shows 0 KB, upload the Downloads copy." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
    }
   }
  }

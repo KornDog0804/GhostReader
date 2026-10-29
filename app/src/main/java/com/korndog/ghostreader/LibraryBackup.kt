@@ -43,7 +43,11 @@ internal object LibraryBackup {
   }
   val manifest = JSONObject().put("format", "ghostreader-library").put("version", 1)
    .put("settings", settings)
-  val stream = context.contentResolver.openOutputStream(destination, "w") ?: error("Cannot write backup")
+  // Build the ZIP locally first (Drive often ends up 0 KB when written to directly), then copy it.
+  val local = File(context.cacheDir, "ghostreader-export.zip")
+  local.delete()
+  try {
+  val stream = java.io.FileOutputStream(local)
   stream.use { output ->
    ZipOutputStream(output.buffered()).use { zip ->
     zip.putNextEntry(ZipEntry("manifest.json"))
@@ -68,7 +72,27 @@ internal object LibraryBackup {
     }
    }
   }
+  val size = local.length()
+  if (size <= 0L) error("Packing produced an empty file")
+  progress(99, "Copying ${size / 1_000_000} MB to your chosen location")
+  context.contentResolver.openOutputStream(destination, "wt")?.use { o ->
+   local.inputStream().use { it.copyTo(o, 256 * 1024) }
+   o.flush()
+  } ?: error("Cannot write to that location")
+  // Also keep a copy in the phone Downloads folder, so it can be uploaded by hand if Drive stalls.
+  if (android.os.Build.VERSION.SDK_INT >= 29) {
+   runCatching {
+    progress(99, "Saving a copy to Downloads")
+    val values = android.content.ContentValues().apply {
+     put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "GhostReader-Library-${System.currentTimeMillis() / 1000}.zip")
+     put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/zip")
+    }
+    val dl = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+    if (dl != null) context.contentResolver.openOutputStream(dl)?.use { o -> local.inputStream().use { it.copyTo(o, 256 * 1024) } }
+   }
+  }
   progress(100, "Backup saved")
+  } finally { local.delete() }
   return books.size
  }
 
