@@ -164,7 +164,10 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  val backupExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
   if (uri != null) {
    backupBusy = true
-   torrentWorker.execute {
+   backupPercent = 0
+   backupPhase = "Saving"
+   backupStatus = "Preparing backup..."
+   backupWorker.execute {
     val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) { percent, detail -> uiHandler.post { backupPercent = percent; backupStatus = detail } } }
     uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Check the ZIP in your selected location." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
    }
@@ -173,7 +176,10 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  val backupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
   if (uri != null) {
    backupBusy = true
-   torrentWorker.execute {
+   backupPercent = 0
+   backupPhase = "Loading"
+   backupStatus = "Reading backup ZIP..."
+   backupWorker.execute {
     val result = runCatching { LibraryBackup.restore(ctx.applicationContext, uri) }
     uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it ebooks, available audiobooks and saved progress"; audioFiles = scanAudioFiles(File(ctx.filesDir, "audio")) }.onFailure { backupStatus = "Restore failed: ${it.message}"; error = backupStatus } }
    }
