@@ -114,6 +114,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var showTools by remember { mutableStateOf(false) }
  var backupBusy by remember { mutableStateOf(false) }
  var backupStatus by remember { mutableStateOf("") }
+ var backupPercent by remember { mutableIntStateOf(0) }
+ var backupPhase by remember { mutableStateOf("") }
  var torrentBusy by remember { mutableStateOf(false) }
  var torrentStatus by remember { mutableStateOf("") }
  val torrentWorker = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
@@ -163,7 +165,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   if (uri != null) {
    backupBusy = true
    torrentWorker.execute {
-    val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) }
+    val result = runCatching { LibraryBackup.export(ctx.applicationContext, uri) { percent, detail -> uiHandler.post { backupPercent = percent; backupStatus = detail } } }
     uiHandler.post { backupBusy = false; result.onSuccess { backupStatus = "Library archive saved. Check the ZIP in your selected location." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
    }
   }
@@ -273,7 +275,16 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
         OutlinedButton(enabled = !backupBusy, onClick = { backupImport.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) { Text("Load library") }
        }
        Text("Choose Google Drive in the Android file picker to save or load a portable ZIP of ebooks, audiobooks and progress. Manual transfer for now; automatic sync is not enabled.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-       if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
+       if (backupBusy) {
+         Spacer(Modifier.height(12.dp))
+         Text(backupPhase + if (backupPhase == "Saving") " • $backupPercent%" else " • Working...", color = violet, fontWeight = FontWeight.Bold)
+         if (backupPhase == "Saving") {
+          LinearProgressIndicator(progress = { backupPercent / 100f }, modifier = Modifier.fillMaxWidth())
+         } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+         }
+        }
+        if (backupStatus.isNotBlank()) Text(backupStatus, color = violet, style = MaterialTheme.typography.bodySmall)
       }
      }
     }
