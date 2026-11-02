@@ -281,6 +281,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
         if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
        }
       }
+      2 -> DiscoverScreen(onMagnet = { selectedMagnet -> magnet = selectedMagnet; magnetMode = "epub"; showMagnet = true; tab = 1 })
       else -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Settings", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Spacer(Modifier.height(16.dp))
