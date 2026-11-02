@@ -145,14 +145,19 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
       uiHandler.post { audioChoices = options; audioSelection = selection }
       try { selection.get(10, java.util.concurrent.TimeUnit.MINUTES) } finally { uiHandler.post { audioSelection = null; audioChoices = emptyList() } }
      })
+    } else if (magnetMode == "comic") {
+     val comicDir = File(ctx.filesDir, "comics").apply { mkdirs() }
+     downloaded = engine.downloadComic(magnet.trim(), comicDir) { status -> uiHandler.post { torrentStatus = status } }
+     validateComic(downloaded!!)
     } else {
      downloaded = engine.download(magnet.trim(), shelf) { status -> uiHandler.post { torrentStatus = status } }
      parseEpub(downloaded!!)
     }
     uiHandler.post {
      books = scanBooks(shelf)
+     comics = scanComics(File(ctx.filesDir, "comics"))
      audioFiles = scanAudioFiles(File(ctx.filesDir, "audio"))
-     torrentStatus = if (magnetMode == "audio") "Audiobook downloaded and added to your shelf" else "EPUB downloaded and added to your shelf"
+     torrentStatus = when(magnetMode) { "audio" -> "Audiobook added to your shelf"; "comic" -> "CBZ comic added to your library"; else -> "EPUB downloaded and added to your shelf" }
      torrentBusy = false
      torrentEngine = null
     }
@@ -291,12 +296,13 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
          FilterChip(selected = magnetMode == "epub", onClick = { magnetMode = "epub" }, label = { Text("EPUB") })
          FilterChip(selected = magnetMode == "audio", onClick = { magnetMode = "audio" }, label = { Text("Audiobook") })
+         FilterChip(selected = magnetMode == "comic", onClick = { magnetMode = "comic" }, label = { Text("CBZ Comic") })
         }
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = magnet, onValueChange = { magnet = it }, label = { Text("Paste a legal book magnet URI") }, modifier = Modifier.fillMaxWidth().height(104.dp), maxLines = 3, singleLine = false)
         Text("Long magnet links scroll inside the box. Download only files you are authorized to obtain.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-         Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else if (magnetMode == "audio") "Find audiobooks" else "Download EPUB") }
+         Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else if (magnetMode == "audio") "Find audiobooks" else if (magnetMode == "comic") "Download CBZ" else "Download EPUB") }
          if (torrentBusy) OutlinedButton(onClick = { audioSelection?.complete(-1); torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
         }
         if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)

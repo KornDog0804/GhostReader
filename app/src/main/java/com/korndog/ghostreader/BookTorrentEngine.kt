@@ -149,6 +149,65 @@ class BookTorrentEngine(private val context: Context) {
   return target
  }
 
+ /** Download one CBZ comic from an authorized torrent, without fetching unrelated files. */
+ fun downloadComic(magnet:String, shelf:File, progress:(String)->Unit):File {
+  require(magnet.startsWith("magnet:?xt=urn:btih:",true)) { "Paste a valid magnet URI" }
+  val work=File(context.cacheDir,"ghostreader-comic-torrent").apply { mkdirs() }
+  val sm=SessionManager()
+  session=sm
+  try {
+   progress("Finding comic torrent metadata...")
+   sm.start()
+   val hash=AddTorrentParams.parseMagnetUri(magnet).infoHashes.best
+   sm.download(withFallbackTrackers(magnet),work,TorrentFlags.AUTO_MANAGED.or_(TorrentFlags.UPDATE_SUBSCRIBE))
+   var handle:TorrentHandle?=null
+   val deadline=System.currentTimeMillis()+120_000L
+   while(!cancelled && System.currentTimeMillis()<deadline) {
+    handle=sm.find(hash)
+    if(handle!=null && handle.isValid && handle.status().hasMetadata()) break
+    progress("Finding peers and comic metadata...")
+    Thread.sleep(1000)
+   }
+   if(cancelled) error("Download cancelled")
+   val th=handle?.takeIf { it.isValid && it.status().hasMetadata() } ?: error("No comic metadata after 120 seconds. No reachable peers or blocked trackers/DHT.")
+   val info=th.torrentFile() ?: error("Comic metadata unavailable")
+   val files=info.files()
+   val matches=(0 until info.numFiles()).filter {
+    files.filePath(it).endsWith(".cbz",true) && files.fileSize(it) in 1..1_500_000_000L
+   }
+   if(matches.isEmpty()) error("No CBZ comic found. CBR archives are not supported yet.")
+   val index=matches.first()
+   val relative=files.filePath(index)
+   val size=files.fileSize(index)
+   require(shelf.usableSpace>size*2+100_000_000L) { "Not enough storage for CBZ download" }
+   th.prioritizeFiles(Array(info.numFiles()) { if(it==index) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE })
+   th.resume()
+   val pieceSize=info.pieceLength().toLong()
+   val first=(files.fileOffset(index)/pieceSize).toInt()
+   val last=((files.fileOffset(index)+size-1)/pieceSize).toInt()
+   val end=System.currentTimeMillis()+6*60*60_000L
+   while(!cancelled && System.currentTimeMillis()<end) {
+    val ready=(first..last).count { th.havePiece(it) }
+    progress("Downloading CBZ: ${ready*100/(last-first+1)}%")
+    if(ready==last-first+1) break
+    Thread.sleep(2000)
+   }
+   if(cancelled) error("Download cancelled")
+   if(!(first..last).all { th.havePiece(it) }) error("CBZ download timed out")
+   val source=File(work,relative)
+   require(source.canonicalPath.startsWith(work.canonicalPath+File.separator) && source.isFile) { "Unsafe or missing CBZ file" }
+   val safe=File(relative).name.replace(Regex("[^a-zA-Z0-9._-]"),"_")
+   val target=File(shelf,"${System.currentTimeMillis()}_$safe")
+   source.copyTo(target,overwrite=false)
+   progress("Comic downloaded")
+   return target
+  } finally {
+   runCatching { sm.stop() }
+   session=null
+   work.deleteRecursively()
+  }
+ }
+
  fun cancel() {
   cancelled = true
   runCatching { session?.stop() }
