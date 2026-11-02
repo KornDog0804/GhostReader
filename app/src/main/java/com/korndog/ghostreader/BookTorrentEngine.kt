@@ -7,6 +7,20 @@ import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
 import java.io.File
 
+private val fallbackTrackers = listOf(
+ "udp://tracker.opentrackr.org:1337/announce",
+ "udp://open.stealth.si:80/announce",
+ "udp://tracker.torrent.eu.org:451/announce",
+ "https://tracker.gbitt.info:443/announce"
+)
+
+/** Preserve any original trackers and add public fallback trackers for peer discovery. */
+private fun withFallbackTrackers(magnet: String): String {
+ val existing = android.net.Uri.parse(magnet).getQueryParameters("tr").toSet()
+ return magnet + fallbackTrackers.filterNot { it in existing }
+  .joinToString("") { "&tr=" + android.net.Uri.encode(it) }
+}
+
 /** Reuses Race Lab's libtorrent4j 2.x engine, but downloads EPUB files instead of streaming video. */
 class BookTorrentEngine(private val context: Context) {
  @Volatile private var cancelled = false
@@ -22,10 +36,10 @@ class BookTorrentEngine(private val context: Context) {
   val sm = SessionManager()
   session = sm
   try {
-   progress("Starting audiobook torrent...")
+   progress("Starting audiobook torrent with public tracker fallbacks...")
    sm.start()
    val hash = AddTorrentParams.parseMagnetUri(magnet).infoHashes.best
-   sm.download(magnet, work, TorrentFlags.AUTO_MANAGED.or_(TorrentFlags.UPDATE_SUBSCRIBE))
+   sm.download(withFallbackTrackers(magnet), work, TorrentFlags.AUTO_MANAGED.or_(TorrentFlags.UPDATE_SUBSCRIBE))
    var handle: TorrentHandle? = null
    val metadataDeadline = System.currentTimeMillis() + 120_000L
    while (!cancelled && System.currentTimeMillis() < metadataDeadline) {
@@ -35,7 +49,7 @@ class BookTorrentEngine(private val context: Context) {
     Thread.sleep(1000)
    }
    if (cancelled) error("Download cancelled")
-   val th = handle?.takeIf { it.isValid && it.status().hasMetadata() } ?: error("Could not fetch torrent metadata")
+   val th = handle?.takeIf { it.isValid && it.status().hasMetadata() } ?: error("Could not fetch audiobook metadata after 120 seconds. No reachable peers, or DHT/trackers may be blocked.")
    val info = th.torrentFile() ?: error("Torrent metadata unavailable")
    val files = info.files()
    val options = (0 until info.numFiles()).filter {
@@ -144,10 +158,10 @@ class BookTorrentEngine(private val context: Context) {
   val sm = SessionManager()
   session = sm
   try {
-   progress("Starting torrent engine...")
+   progress("Starting torrent engine with public tracker fallbacks...")
    sm.start()
    val hash = AddTorrentParams.parseMagnetUri(magnet).infoHashes.best
-   sm.download(magnet, work, TorrentFlags.AUTO_MANAGED.or_(TorrentFlags.UPDATE_SUBSCRIBE))
+   sm.download(withFallbackTrackers(magnet), work, TorrentFlags.AUTO_MANAGED.or_(TorrentFlags.UPDATE_SUBSCRIBE))
    var handle: TorrentHandle? = null
    val metadataDeadline = System.currentTimeMillis() + 120_000L
    while (!cancelled && System.currentTimeMillis() < metadataDeadline) {
@@ -157,14 +171,15 @@ class BookTorrentEngine(private val context: Context) {
     Thread.sleep(1000)
    }
    if (cancelled) error("Download cancelled")
-   val th = handle ?: error("No peers found for magnet")
-   val info = th.torrentFile() ?: error("Torrent metadata unavailable")
+   val th = handle?.takeIf { it.isValid && it.status().hasMetadata() }
+    ?: error("No torrent metadata after 120 seconds. Trackers and DHT may be blocked, or no reachable peers have the metadata. Try another well-seeded, authorized torrent or a different network.")
+   val info = th.torrentFile() ?: error("Torrent metadata unavailable despite peer discovery")
    val files = info.files()
    val matches = (0 until info.numFiles()).filter {
     files.filePath(it).endsWith(".epub", ignoreCase = true) &&
      files.fileSize(it) in 1..30_000_000L
    }
-   if (matches.isEmpty()) error("Torrent has no EPUB file under 30 MB")
+   if (matches.isEmpty()) error("No supported EPUB under 30 MB in this torrent. Comics (CBZ/CBR) and PDF downloads require a separate file picker and reader support; this EPUB button cannot import them.")
    val index = matches.first()
    val relative = files.filePath(index)
    val safeName = File(relative).name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
