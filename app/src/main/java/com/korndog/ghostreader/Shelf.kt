@@ -170,7 +170,7 @@ internal fun ShellNav(selected: Int, onSelect: (Int) -> Unit) {
             unselectedIconColor = Color(0xFF8E80A3),
             unselectedTextColor = Color(0xFF8E80A3)
         )
-        listOf("▥" to "Library", "⤓" to "Downloads", "⚙" to "Settings").forEachIndexed { index, (icon, label) ->
+        listOf("▥" to "Library", "⤓" to "Downloads", "⌕" to "Discover", "⚙" to "Settings").forEachIndexed { index, (icon, label) ->
             NavigationBarItem(
                 selected = selected == index,
                 onClick = { onSelect(index) },
