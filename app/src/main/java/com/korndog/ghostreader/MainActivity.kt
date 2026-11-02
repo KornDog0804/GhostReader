@@ -86,6 +86,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var selected by remember { mutableStateOf<Book?>(null) }
  var selectedAudio by remember { mutableStateOf<File?>(null) }
  var selectedComic by remember { mutableStateOf<File?>(null) }
+ var selectedPdf by remember { mutableStateOf<File?>(null) }
+ var pdfFiles by remember { mutableStateOf(scanPdfs(File(ctx.filesDir,"pdfs").apply { mkdirs() })) }
  var comics by remember { mutableStateOf(scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })) }
  var audioFiles by remember { mutableStateOf(scanAudioFiles(File(ctx.filesDir, "audio").apply { mkdirs() })) }
  var deleteCandidate by remember { mutableStateOf<Book?>(null) }
@@ -220,6 +222,20 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    } catch (e: Exception) { error = e.message ?: "Could not import audiobook" }
   }
  }
+ val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+  if(uri!=null) try {
+   val name=ctx.contentResolver.query(uri,null,null,null,null)?.use { c -> val i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if(c.moveToFirst()&&i>=0)c.getString(i) else null } ?: "document.pdf"
+   require(name.endsWith(".pdf",true)) { "Choose a PDF file" }
+   val safe=name.replace(Regex("[^a-zA-Z0-9._ -]"),"_")
+   val folder=File(ctx.filesDir,"pdfs").apply { mkdirs() }
+   val target=File(folder,"${System.currentTimeMillis()}_$safe")
+   try {
+    ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Cannot open PDF")
+    validatePdf(target)
+    pdfFiles=scanPdfs(folder)
+   } catch(e:Exception) { target.delete(); throw e }
+  } catch(e:Exception) { error=e.message?:"Could not import PDF" }
+ }
  val comicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
   if(uri != null) try {
    val name=ctx.contentResolver.query(uri,null,null,null,null)?.use { c -> val i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if(c.moveToFirst()&&i>=0)c.getString(i) else null } ?: "comic.cbz"
@@ -263,7 +279,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
   Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
-   if (selectedComic != null) {
+   if (selectedPdf != null) {
+    PdfReader(selectedPdf!!,onClose={selectedPdf=null})
+   } else if (selectedComic != null) {
     ComicReader(selectedComic!!, onClose = { selectedComic = null })
    } else if (selectedAudio != null) {
     val file = selectedAudio!!
@@ -275,11 +293,19 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     BackHandler { showHome = true }
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
-      0 -> LibraryScreen(
+      0 -> Column {
+       if(pdfFiles.isNotEmpty()) {
+        Text("PDF Documents",color=violet,modifier=Modifier.padding(start=20.dp,top=8.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+         pdfFiles.forEach { file -> OutlinedButton(onClick={selectedPdf=file}) { Text(file.name.substringAfter("_").take(32)) } }
+        }
+       }
+       Box(Modifier.weight(1f)) { LibraryScreen(
        books = books, audio = audioFiles,
        onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
        onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it }
-      )
+      ) }
+      }
       1 -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Text("Add books and audiobooks you own.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
@@ -287,6 +313,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import EPUB") }
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import audiobook") }
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(onClick = { pdfPicker.launch(arrayOf("application/pdf","*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import PDF") }
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { comicPicker.launch(arrayOf("application/zip","application/octet-stream","*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import CBZ comic") }
        Spacer(Modifier.height(8.dp))
