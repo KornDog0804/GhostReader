@@ -84,6 +84,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var books by remember { mutableStateOf(scanBooks(shelf)) }
  var selected by remember { mutableStateOf<Book?>(null) }
  var selectedAudio by remember { mutableStateOf<File?>(null) }
+ var selectedComic by remember { mutableStateOf<File?>(null) }
+ var comics by remember { mutableStateOf(scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })) }
  var audioFiles by remember { mutableStateOf(scanAudioFiles(File(ctx.filesDir, "audio").apply { mkdirs() })) }
  var deleteCandidate by remember { mutableStateOf<Book?>(null) }
  var deleteAudioCandidate by remember { mutableStateOf<File?>(null) }
@@ -212,6 +214,20 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    } catch (e: Exception) { error = e.message ?: "Could not import audiobook" }
   }
  }
+ val comicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+  if(uri != null) try {
+   val name=ctx.contentResolver.query(uri,null,null,null,null)?.use { c -> val i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if(c.moveToFirst()&&i>=0)c.getString(i) else null } ?: "comic.cbz"
+   require(name.endsWith(".cbz",true)) { "Choose a CBZ comic archive" }
+   val safe=name.replace(Regex("[^a-zA-Z0-9._ -]"),"_")
+   val folder=File(ctx.filesDir,"comics").apply { mkdirs() }
+   val target=File(folder,"${System.currentTimeMillis()}_$safe")
+   try {
+    ctx.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Cannot open comic")
+    validateComic(target)
+    comics=scanComics(folder)
+   } catch(e:Exception) { target.delete(); throw e }
+  } catch(e:Exception) { error=e.message?:"Could not import comic" }
+ }
  val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
   if (uri != null) {
    try {
@@ -241,7 +257,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
   Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
-   if (selectedAudio != null) {
+   if (selectedComic != null) {
+    ComicReader(selectedComic!!, onClose = { selectedComic = null })
+   } else if (selectedAudio != null) {
     val file = selectedAudio!!
     AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
    } else if (selected == null && showHome) {
@@ -263,6 +281,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        Button(onClick = { picker.launch(arrayOf("application/epub+zip", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import EPUB") }
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import audiobook") }
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(onClick = { comicPicker.launch(arrayOf("application/zip","application/octet-stream","*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import CBZ comic") }
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { showMagnet = !showMagnet }, modifier = Modifier.fillMaxWidth()) { Text("Download from magnet") }
        if (showMagnet) {
