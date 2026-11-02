@@ -16,7 +16,10 @@ private val fallbackTrackers = listOf(
 
 /** Preserve any original trackers and add public fallback trackers for peer discovery. */
 private fun withFallbackTrackers(magnet: String): String {
- val existing = android.net.Uri.parse(magnet).getQueryParameters("tr").toSet()
+ val existing = magnet.substringAfter('?', "").split('&')
+  .filter { it.startsWith("tr=", ignoreCase = true) }
+  .map { java.net.URLDecoder.decode(it.substringAfter('='), "UTF-8") }
+  .toSet()
  return magnet + fallbackTrackers.filterNot { it in existing }
   .joinToString("") { "&tr=" + android.net.Uri.encode(it) }
 }
