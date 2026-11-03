@@ -30,6 +30,15 @@ class BookTorrentEngine(private val context: Context) {
  @Volatile private var session: SessionManager? = null
 
 
+ /** Distinguish a missing torrent handle from peer discovery and metadata transfer. */
+ private fun metadataStatus(handle: TorrentHandle?): String {
+  if (handle == null || !handle.isValid) return "waiting for torrent session to register magnet"
+  return runCatching {
+   val status=handle.status()
+   "peers ${status.numPeers()}, metadata ${if(status.hasMetadata()) "received" else "pending"}, state ${status.state()}"
+  }.getOrDefault("checking peer connections")
+ }
+
  data class AudioOption(val index: Int, val name: String, val bytes: Long)
 
  /** Inspect magnet metadata, let the user select ONE authorized audiobook, then download it. */
@@ -38,6 +47,7 @@ class BookTorrentEngine(private val context: Context) {
   val work = File(context.cacheDir, "ghostreader-audio-torrent").apply { mkdirs() }
   val sm = SessionManager()
   session = sm
+  cancelled = false
   try {
    progress("Starting audiobook torrent with public tracker fallbacks...")
    sm.start()
@@ -48,7 +58,7 @@ class BookTorrentEngine(private val context: Context) {
    while (!cancelled && System.currentTimeMillis() < metadataDeadline) {
     handle = sm.find(hash)
     if (handle != null && handle.isValid && handle.status().hasMetadata()) break
-    progress("Finding peers and audiobook metadata...")
+    progress("Audiobook metadata: "+metadataStatus(handle))
     Thread.sleep(1000)
    }
    if (cancelled) error("Download cancelled")
@@ -165,7 +175,7 @@ class BookTorrentEngine(private val context: Context) {
    while(!cancelled && System.currentTimeMillis()<deadline) {
     handle=sm.find(hash)
     if(handle!=null && handle.isValid && handle.status().hasMetadata()) break
-    progress("Finding peers and comic metadata...")
+    progress("Comic metadata: "+metadataStatus(handle))
     Thread.sleep(1000)
    }
    if(cancelled) error("Download cancelled")
@@ -219,6 +229,7 @@ class BookTorrentEngine(private val context: Context) {
   val work = File(context.cacheDir, "ghostreader-torrent").apply { mkdirs() }
   val sm = SessionManager()
   session = sm
+  cancelled = false
   try {
    progress("Starting torrent engine with public tracker fallbacks...")
    sm.start()
@@ -229,7 +240,7 @@ class BookTorrentEngine(private val context: Context) {
    while (!cancelled && System.currentTimeMillis() < metadataDeadline) {
     handle = sm.find(hash)
     if (handle != null && handle.isValid && handle.status().hasMetadata()) break
-    progress("Finding peers and torrent metadata...")
+    progress("EPUB metadata: "+metadataStatus(handle))
     Thread.sleep(1000)
    }
    if (cancelled) error("Download cancelled")
