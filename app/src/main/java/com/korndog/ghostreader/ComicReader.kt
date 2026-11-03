@@ -37,12 +37,17 @@ internal fun ComicReader(file:File,onClose:()->Unit) {
  var message by remember(file) { mutableStateOf<String?>(null) }
  LaunchedEffect(file) { try { names=withContext(Dispatchers.IO) { pages(file) };index=index.coerceIn(0,(names.size-1).coerceAtLeast(0)) } catch(e:Exception){message=e.message} }
  LaunchedEffect(file,index,names) {
-  if(names.isNotEmpty()) try {
+  if(names.isNotEmpty()) try {\n   message=null
    image=withContext(Dispatchers.IO) {
     ZipFile(file).use { zip ->
      val entry=zip.getEntry(names[index]) ?: error("Missing page")
      require(entry.size in 1..35_000_000L) { "Page exceeds 35 MB" }
-     zip.getInputStream(entry).use { stream -> BitmapFactory.decodeStream(stream) ?: error("Unreadable page") }
+     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+     zip.getInputStream(entry).use { stream -> BitmapFactory.decodeStream(stream, null, bounds) }
+     var sample = 1
+     while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 2400) sample *= 2
+     val options = BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = android.graphics.Bitmap.Config.RGB_565 }
+     zip.getInputStream(entry).use { stream -> BitmapFactory.decodeStream(stream, null, options) ?: error("Unreadable page") }
     }
    }
    prefs.edit().putInt(key,index).apply()

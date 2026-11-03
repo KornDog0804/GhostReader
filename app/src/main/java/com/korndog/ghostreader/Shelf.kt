@@ -366,7 +366,7 @@ internal fun LibraryScreen(
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
-    val loaded by produceState<List<ShelfEntry>?>(null, books, audio, pdfs, artworkRevision) {
+    val loaded by produceState<List<ShelfEntry>?>(null, books, audio, pdfs, comics, artworkRevision) {
         value = withContext(Dispatchers.IO) {
             val ebooks = books.map { book ->
                 val meta = runCatching { readVolumeMetadata(book) }.getOrNull()
