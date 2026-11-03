@@ -63,6 +63,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -336,6 +338,31 @@ internal fun LibraryScreen(
         }.getOrDefault(emptyList())
     ) }
     var menuEntry by remember { mutableStateOf<ShelfEntry?>(null) }
+    var exportSource by remember { mutableStateOf<File?>(null) }
+    val exportScope = androidx.compose.runtime.rememberCoroutineScope()
+    val audioExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val source = exportSource
+        exportSource = null
+        if (uri != null && source != null) {
+            exportScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        require(source.isFile && source.canRead()) { "Original audiobook file is unavailable" }
+                        context.contentResolver.openOutputStream(uri, "w")?.use { output ->
+                            source.inputStream().buffered().use { input -> input.copyTo(output, 128 * 1024) }
+                            output.flush()
+                        } ?: error("Could not open destination")
+                    }
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    if (result.isSuccess) "Audiobook copy saved. Import it in GhostKernel." else "Export failed: ${result.exceptionOrNull()?.message}",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     var coverTarget by remember { mutableStateOf<ShelfEntry?>(null) }
     var artworkRevision by remember { mutableIntStateOf(0) }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -442,6 +469,13 @@ internal fun LibraryScreen(
                             artworkRevision++
                             menuEntry = null
                         }) { Text("Reset cover to automatic") }
+                    }
+                    if (entry.audio != null) {
+                        TextButton(onClick = {
+                            exportSource = entry.audio
+                            menuEntry = null
+                            audioExport.launch(entry.audio.name.substringAfter('_'))
+                        }) { Text("Export audiobook copy") }
                     }
                     TextButton(onClick = { moveEntry(entry, -1) }, enabled = position > 0) { Text("↑ Move up one") }
                     TextButton(onClick = { moveEntry(entry, 1) }, enabled = position in 0 until orderedEntries.lastIndex) { Text("↓ Move down one") }
