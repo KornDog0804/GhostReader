@@ -339,6 +339,7 @@ internal fun LibraryScreen(
     ) }
     var menuEntry by remember { mutableStateOf<ShelfEntry?>(null) }
     var exportSource by remember { mutableStateOf<File?>(null) }
+    var exportCover by remember { mutableStateOf<Bitmap?>(null) }
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
     val audioExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val source = exportSource
@@ -363,6 +364,25 @@ internal fun LibraryScreen(
         }
     }
 
+    val coverExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { uri ->
+        val bitmap = exportCover
+        exportCover = null
+        if (uri != null && bitmap != null) {
+            exportScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri, "w")?.use { output ->
+                            require(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)) { "Could not encode cover" }
+                        } ?: error("Could not open destination")
+                    }
+                }
+                android.widget.Toast.makeText(context,
+                    if (result.isSuccess) "Cover saved. Choose it in GhostKernel's Change cover menu."
+                    else "Cover export failed: ${result.exceptionOrNull()?.message}",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     var coverTarget by remember { mutableStateOf<ShelfEntry?>(null) }
     var artworkRevision by remember { mutableIntStateOf(0) }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -474,8 +494,18 @@ internal fun LibraryScreen(
                         TextButton(onClick = {
                             exportSource = entry.audio
                             menuEntry = null
-                            audioExport.launch(entry.audio.name.substringAfter('_'))
+                            audioExport.launch(entry.title.replace(Regex("[^a-zA-Z0-9 .,'()!-]"), "").trim().ifBlank { "Audiobook" } + "." + entry.audio.extension.lowercase())
                         }) { Text("Export audiobook copy") }
+                        TextButton(onClick = {
+                            val cover = entry.cover
+                            if (cover == null) {
+                                android.widget.Toast.makeText(context, "No cover available to export", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                exportCover = cover
+                                menuEntry = null
+                                coverExport.launch(entry.title.replace(Regex("[^a-zA-Z0-9 .,'()!-]"), "").trim() + " - cover.jpg")
+                            }
+                        }, enabled = entry.cover != null) { Text("Export cover for GhostKernel") }
                     }
                     TextButton(onClick = { moveEntry(entry, -1) }, enabled = position > 0) { Text("↑ Move up one") }
                     TextButton(onClick = { moveEntry(entry, 1) }, enabled = position in 0 until orderedEntries.lastIndex) { Text("↓ Move down one") }
