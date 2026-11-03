@@ -329,6 +329,23 @@ private fun manualCoverFile(context: android.content.Context, entry: ShelfEntry)
  * Cache keys include file size and modification time so replaced documents
  * cannot silently keep old artwork.
  */
+// Presentation-only cleanup. Keep original filenames and file paths untouched.
+private fun readableDocumentTitle(file: File, comic: Boolean): String {
+    var title = file.nameWithoutExtension
+        .replace(Regex("^\\d{10,17}_"), "")
+        .replace('_', ' ')
+        .replace(Regex("(?i)^(?:oceanofpdf\\.com|oceanofpdf|www\\.oceanofpdf\\.com)[ -]*"), "")
+        .replace(Regex("(?i)\\s*\\((?:digital|empire|kileko[- ]empire|scan|scanned|webrip|retail|202[0-9])\\)"), " ")
+        .replace(Regex("(?i)\\s*\\b(?:digital|kileko[- ]empire|empire)\\b.*$"), "")
+        .replace(Regex("\\s+"), " ").trim(' ', '-', '.', '_')
+    if (comic) {
+        title = title.replace(Regex("(?i)^(.*?)\\s+(0*)(\\d{1,4})\\s*\\(?20\\d{2}\\)?.*$")) {
+            "${it.groupValues[1].trim()} #${it.groupValues[3].toInt()}"
+        }
+    }
+    return title.ifBlank { if (comic) "Comic" else "PDF Document" }
+}
+
 private fun cachedDocumentCover(context: android.content.Context, entry: ShelfEntry): Bitmap? {
     val file = entry.pdf ?: entry.comic ?: return null
     if (!file.isFile) return null
@@ -484,12 +501,12 @@ internal fun LibraryScreen(
                 ShelfEntry(null, file, title, info?.author.orEmpty(), info?.cover, info?.durationMs ?: 0L, seriesOf(title))
             }
             val documents = pdfs.map { file ->
-                val title = file.nameWithoutExtension.substringAfter("_").replace('_',' ').trim().ifBlank { "PDF Document" }
+                val title = readableDocumentTitle(file, comic = false)
                 val cover = null // Defer PDF thumbnail rendering; opening the shelf must not render every PDF
                 ShelfEntry(null, null, title, "", cover, 0L, seriesOf(title), pdf=file)
             }
             val comicEntries = comics.map { file ->
-                val title = file.nameWithoutExtension.substringAfter("_").replace('_', ' ').trim().ifBlank { "Comic" }
+                val title = readableDocumentTitle(file, comic = true)
                 ShelfEntry(null, null, title, "", null, 0L, seriesOf(title), comic=file)
             }
             (audios + ebooks + documents + comicEntries).map { entry ->
