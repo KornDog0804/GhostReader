@@ -1,3 +1,4 @@
+import { openPdf, renderPage, pdfCover } from "./pdfview.js";
 import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
 import { PageEngine } from "./page-engine.js";
@@ -38,12 +39,21 @@ async function coverSrc(it, store) {
   if ((!data || data.length < 200) && store === "books" && it.blob && it.format !== "cbz" && it.format !== "pdf") {
     try { const ep = await Epub.open(it.blob); blob = await ep.cover(); ep.destroy(); if (blob && blob.size) data = await blobToDataUrl(blob); } catch {}
   }
-  if ((!data || data.length < 200) && store === "books" && !coverOnlineTried.has(key)) {
+  if ((!data || data.length < 200) && store === "books" && it.blob && (it.format === "cbz" || it.format === "pdf")) {
+    // Comics: the cover is the real first page, never an online guess.
+    try {
+      let c = null;
+      if (it.format === "pdf") c = await pdfCover(it.blob);
+      else { const z = await Zip.open(it.blob); const pg = z.names().filter(x => /\.(jpe?g|png|webp|gif)$/i.test(x) && !x.startsWith("__MACOSX/")).sort((x, y) => x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" }))[0]; if (pg) c = await z.blob_(pg, "image/jpeg"); }
+      if (c && c.size) { blob = c; data = await blobToDataUrl(c); it.cover = c; await DB.put("books", it); }
+    } catch (err) { console.warn("Comic cover skipped", it.title, err); }
+  }
+  if ((!data || data.length < 200) && store === "books" && it.format !== "cbz" && it.format !== "pdf" && !coverOnlineTried.has(key)) {
     // Last resort: look the book up online (once per visit).
     coverOnlineTried.add(key);
     try { const c = (await fetchCover(it.title, it.author)) || (await fetchGoogleCover(it.title, it.author)); if (c) { blob = c; data = await blobToDataUrl(c); } } catch {}
   }
-  if ((!data || data.length < 200) && store === "books" && !coverUrlTried.has(key)) {
+  if ((!data || data.length < 200) && store === "books" && it.format !== "cbz" && it.format !== "pdf" && !coverUrlTried.has(key)) {
     // The image bytes may be blocked by the browser (CORS), but an <img> can still show the picture from its web address.
     coverUrlTried.add(key);
     try { const [u] = await findCoverUrls(it.title, it.author); if (u) { await DB.put("covers", { key, size: 0, data: u, remote: true }); return u; } } catch {}
@@ -196,6 +206,7 @@ async function addComic(blob, fileName) {
   if (!pages.length) throw new Error("CBZ has no image pages");
   cover = await zip.blob_(pages[0], "image/jpeg");
  }
+ if (format === "pdf") { try { cover = await pdfCover(blob); } catch (err) { console.warn("PDF cover deferred", err); } }
  const parsed = parseName(fileName);
  await DB.put("books", { name:fileName,size:blob.size,title:parsed.title,author:parsed.author,cover,blob,format,manga:false,added:Date.now() });
  return true;
@@ -366,7 +377,22 @@ function comicProgress() {
  LS.set(`gr:c:${C.id}`, { page:C.page, o:(C.page+1)/C.pages.length, ts:Date.now() });
 }
 async function showComicPage() {
- if (!C || C.format === "pdf") return;
+ if (!C) return;
+ if (C.format === "pdf") {
+  const mine = C;
+  const cur = C.page;
+  $("#cprogress").textContent = "Loading page " + (cur + 1) + "…";
+  try {
+   const w = Math.min(2200, Math.round(Math.max(window.innerWidth, 600) * Math.min(window.devicePixelRatio || 1, 2)));
+   const blob = await renderPage(C.pdf, cur + 1, w);
+   if (C !== mine || C.page !== cur) return;
+   if (comicUrl) URL.revokeObjectURL(comicUrl);
+   comicUrl = URL.createObjectURL(blob);
+   comicImage.src = comicUrl;
+   comicProgress();
+  } catch (err) { setStatus("Could not draw this PDF page: " + (err.message || err)); }
+  return;
+ }
  if (comicUrl) URL.revokeObjectURL(comicUrl);
  const path = C.pages[C.page];
  const ext = path.split(".").pop().toLowerCase();
@@ -375,7 +401,7 @@ async function showComicPage() {
  comicProgress();
 }
 function turnComic(delta) {
- if (!C || C.format === "pdf") return;
+ if (!C) return;
  C.page = Math.max(0,Math.min(C.pages.length-1,C.page+(C.rtl?-delta:delta)));
  showComicPage();
 }
@@ -389,10 +415,13 @@ async function openComic(id) {
  $("#cdir").textContent=C.rtl?"RTL":"LTR"; $("#cmode").textContent="Page";
  $("#pdfpage").hidden=true; comicImage.hidden=false; $("#comicbar").hidden=false;
  if(rec.format==="pdf") {
-  C.pages=[0]; C.format="pdf"; comicImage.hidden=true; $("#comicbar").hidden=true;
-  const url=URL.createObjectURL(rec.blob); comicUrl=url;
-  $("#pdfpage").src=url; $("#pdfpage").hidden=false;
-  $("#cprogress").textContent="PDF"; return;
+  try {
+   C.pdf=await openPdf(rec.blob);
+   C.pages=Array.from({length:C.pdf.numPages},(_,i)=>i);
+   C.page=Math.max(0,Math.min(C.pages.length-1,C.page));
+   await showComicPage();
+  } catch (err) { $("#cprogress").textContent="Could not open this PDF: "+(err.message||err); }
+  return;
  }
  C.zip=await Zip.open(rec.blob);
  C.pages=C.zip.names().filter(x=>/\.(jpe?g|png|webp|gif)$/i.test(x)&&!x.startsWith("__MACOSX/")).sort((x,y)=>x.localeCompare(y,undefined,{numeric:true,sensitivity:"base"}));
@@ -401,12 +430,12 @@ async function openComic(id) {
 }
 $("#cback").addEventListener("click",()=>{
  $("#comicreader").hidden=true; $("#library").hidden=false;
- comicImage.removeAttribute("src"); $("#pdfpage").removeAttribute("src");
+ comicImage.removeAttribute("src"); $("#pdfpage").removeAttribute("src"); if(C&&C.pdf){try{C.pdf.destroy();}catch{}}
  if(comicUrl) URL.revokeObjectURL(comicUrl); comicUrl=null; C=null; renderLibrary();
 });
 $("#cprev").addEventListener("click",()=>turnComic(-1));
 $("#cnext").addEventListener("click",()=>turnComic(1));
-$("#cslide").addEventListener("input",e=>{if(C&&C.format!=="pdf"){C.page=Number(e.target.value)-1;showComicPage();}});
+$("#cslide").addEventListener("input",e=>{if(C){C.page=Number(e.target.value)-1;showComicPage();}});
 $("#cdir").addEventListener("click",async()=>{
  if(!C)return; C.rtl=!C.rtl; $("#cdir").textContent=C.rtl?"RTL":"LTR";
  const rec=await DB.get("books",C.id); rec.manga=C.rtl; await DB.put("books",rec);
