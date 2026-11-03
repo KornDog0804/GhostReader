@@ -331,19 +331,25 @@ private fun manualCoverFile(context: android.content.Context, entry: ShelfEntry)
  */
 // Presentation-only cleanup. Keep original filenames and file paths untouched.
 private fun readableDocumentTitle(file: File, comic: Boolean): String {
+    // Display names only: never rename files or disturb reading progress.
     var title = file.nameWithoutExtension
         .replace(Regex("^\\d{10,17}_"), "")
         .replace('_', ' ')
-        .replace(Regex("(?i)^(?:oceanofpdf\\.com|oceanofpdf|www\\.oceanofpdf\\.com)[ -]*"), "")
-        .replace(Regex("(?i)\\s*\\((?:digital|empire|kileko[- ]empire|scan|scanned|webrip|retail|202[0-9])\\)"), " ")
-        .replace(Regex("(?i)\\s*\\b(?:digital|kileko[- ]empire|empire)\\b.*$"), "")
-        .replace(Regex("\\s+"), " ").trim(' ', '-', '.', '_')
+        .replace(Regex("(?i)^(?:www\\.)?oceanofpdf(?:\\.com)?[\\s._-]*"), "")
+        .replace(Regex("(?i)\\s*\\((?:digital|empire|kileko[- ]empire|scan|scanned|webrip|retail|20\\d{2})\\)"), " ")
+        .replace(Regex("(?i)\\s*\\[(?:digital|scan|retail|20\\d{2})\\]"), " ")
+        .replace(Regex("(?i)\\s+(?:digital|kileko[- ]empire|empire)\\b.*$"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim(' ', '-', '.', '_')
     if (comic) {
-        title = title.replace(Regex("(?i)^(.*?)\\s+(0*)(\\d{1,4})\\s*\\(?20\\d{2}\\)?.*$")) {
-            "${it.groupValues[1].trim()} #${it.groupValues[3].toInt()}"
+        val issue = Regex("(?i)^(.+?)\\s+#?0*(\\d{1,4})(?:\\s*\\(?20\\d{2}\\)?)?$").matchEntire(title)
+        if (issue != null) {
+            title = "ISSUE_TITLE #ISSUE_NUMBER"
+                .replace("ISSUE_TITLE", issue.groupValues[1].trim())
+                .replace("ISSUE_NUMBER", issue.groupValues[2].toInt().toString())
         }
     }
-    return title.ifBlank { if (comic) "Comic" else "PDF Document" }
+    return title.trim().ifBlank { if (comic) "Comic" else "PDF Document" }
 }
 
 private fun cachedDocumentCover(context: android.content.Context, entry: ShelfEntry): Bitmap? {
