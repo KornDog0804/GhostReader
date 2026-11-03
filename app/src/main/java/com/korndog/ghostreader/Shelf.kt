@@ -50,6 +50,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import java.util.zip.ZipFile
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -191,6 +193,15 @@ internal fun ShellNav(selected: Int, onSelect: (Int) -> Unit) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit) {
+    val context = LocalContext.current
+    // Load document artwork only when a tile is visible. Never decode the entire
+    // PDF/CBZ collection while opening My Library.
+    val documentCover by produceState<Bitmap?>(null, entryId(entry), entry.cover) {
+        value = entry.cover ?: withContext(Dispatchers.IO) {
+            runCatching { cachedDocumentCover(context, entry) }.getOrNull()
+        }
+    }
+    val displayEntry = if (documentCover != null && entry.cover == null) entry.copy(cover = documentCover) else entry
     Column(
         Modifier
             .clip(RoundedCornerShape(10.dp))
@@ -198,13 +209,13 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
             .padding(bottom = 4.dp)
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-            if (entry.audio != null && entry.cover != null) {
+            if (entry.audio != null && displayEntry.cover != null) {
                 // Audiobook art is square: show all of it, never cropped.
                 Box(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color(0xFF14101C)), contentAlignment = Alignment.Center) {
-                    ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(4.dp)), fit = true)
+                    ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(4.dp)), fit = true)
                 }
             } else {
-                ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+                ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
             }
             if (entry.comic != null) {
                 Text("CBZ", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC6D3FD0), RoundedCornerShape(4.dp)).padding(horizontal=4.dp, vertical=2.dp))
@@ -311,6 +322,54 @@ private fun manualCoverFile(context: android.content.Context, entry: ShelfEntry)
     val digest = MessageDigest.getInstance("SHA-256").digest(entryId(entry).toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
     return File(File(context.filesDir, "manual_covers").apply { mkdirs() }, "$digest.jpg")
+}
+
+/**
+ * Persistent, size-bounded document thumbnails. Manual covers always win.
+ * Cache keys include file size and modification time so replaced documents
+ * cannot silently keep old artwork.
+ */
+private fun cachedDocumentCover(context: android.content.Context, entry: ShelfEntry): Bitmap? {
+    val file = entry.pdf ?: entry.comic ?: return null
+    if (!file.isFile) return null
+    val id = "${file.absolutePath}:${file.length()}:${file.lastModified()}"
+    val digest = MessageDigest.getInstance("SHA-256").digest(id.toByteArray())
+        .joinToString("") { "%02x".format(it) }
+    val folder = File(context.cacheDir, "document_covers").apply { mkdirs() }
+    val target = File(folder, "$digest.jpg")
+    fun decode(): Bitmap? = BitmapFactory.decodeFile(target.absolutePath)
+    if (target.isFile) decode()?.let { return it }
+    val image = if (entry.pdf != null) pdfCover(file) else comicFirstPageCover(file)
+    if (image != null) {
+        val temp = File(folder, "$digest.tmp")
+        try {
+            temp.outputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 82, it) }
+            if (!temp.renameTo(target)) temp.copyTo(target, overwrite = true)
+        } finally { temp.delete() }
+    }
+    return image
+}
+
+private fun comicFirstPageCover(file: File): Bitmap? = ZipFile(file).use { zip ->
+    val first = zip.entries().asSequence()
+        .filter { !it.isDirectory && !it.name.startsWith("__MACOSX/") &&
+            !it.name.split('/').any { part -> part.startsWith(".") } &&
+            it.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp") }
+        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) {
+            it.name.replace(Regex("\\d+")) { m -> m.value.padStart(12, '0') }
+        }).firstOrNull() ?: return@use null
+    if (first.size > 35_000_000L) return@use null
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    zip.getInputStream(first).use { BitmapFactory.decodeStream(it, null, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@use null
+    var sample = 1
+    while (bounds.outWidth / sample > 420 || bounds.outHeight / sample > 640) sample *= 2
+    zip.getInputStream(first).use {
+        BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.RGB_565
+        })
+    }
 }
 
 /** My Library: cover tiles with Books, Authors and Series tabs, and search. */
