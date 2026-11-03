@@ -293,11 +293,11 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     BackHandler { showHome = true }
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
-      0 -> Column {
+      0 -> Column(Modifier.fillMaxSize().statusBarsPadding()) {
        if(pdfFiles.isNotEmpty()) {
-        Text("PDF Documents",color=violet,modifier=Modifier.padding(start=20.dp,top=8.dp))
+        Text("PDF Documents",color=violet,modifier=Modifier.padding(start=20.dp,top=8.dp,bottom=4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-         pdfFiles.forEach { file -> OutlinedButton(onClick={selectedPdf=file}) { Text(file.name.substringAfter("_").take(32)) } }
+         pdfFiles.forEach { file -> OutlinedButton(onClick={selectedPdf=file},modifier=Modifier.widthIn(max=220.dp)) { Text(file.name.substringAfter("_").removeSuffix(".pdf").take(24),maxLines=1) } }
         }
        }
        Box(Modifier.weight(1f)) { LibraryScreen(
