@@ -329,6 +329,20 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
          Button(enabled = !torrentBusy, onClick = { downloadMagnet() }) { Text(if (torrentBusy) "Downloading..." else if (magnetMode == "audio") "Find audiobooks" else if (magnetMode == "comic") "Download CBZ" else "Download EPUB") }
          if (torrentBusy) OutlinedButton(onClick = { audioSelection?.complete(-1); torrentEngine?.cancel(); torrentStatus = "Cancelling..." }) { Text("Cancel") }
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+         enabled = !torrentBusy && magnet.trim().startsWith("magnet:?xt=urn:btih:", true),
+         onClick = {
+          try {
+           val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(magnet.trim()))
+           ctx.startActivity(Intent.createChooser(intent, "Open magnet with torrent app"))
+          } catch (e: Exception) {
+           error = "No torrent app available for magnet links: ${e.message}"
+          }
+         },
+         modifier = Modifier.fillMaxWidth()
+        ) { Text("Open magnet in LibreTorrent") }
+        Text("When the authorized download finishes in LibreTorrent, use Import EPUB, audiobook, PDF, or CBZ above and choose the saved file from Downloads.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
         if (torrentStatus.isNotBlank()) Text(torrentStatus, color = Color.LightGray)
        }
       }
