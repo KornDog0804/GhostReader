@@ -240,7 +240,7 @@ private fun EntryGrid(entries: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, o
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        items(entries, key = { (it.book?.progressKey ?: it.audio?.absolutePath ?: it.pdf?.absolutePath).orEmpty() + it.title }) { entry ->
+        items(entries, key = { entryId(it) }) { entry ->
             CoverTile(entry, onOpen = { onOpen(entry) }, onLong = { onLong(entry) })
         }
     }
@@ -379,7 +379,7 @@ internal fun LibraryScreen(
             }
             val documents = pdfs.map { file ->
                 val title = file.nameWithoutExtension.substringAfter("_").replace('_',' ').trim().ifBlank { "PDF Document" }
-                val cover = runCatching { pdfCover(file) }.getOrNull()
+                val cover = null // Defer PDF thumbnail rendering; opening the shelf must not render every PDF
                 ShelfEntry(null, null, title, "", cover, 0L, seriesOf(title), pdf=file)
             }
             val comicEntries = comics.map { file ->
@@ -388,7 +388,13 @@ internal fun LibraryScreen(
             }
             (audios + ebooks + documents + comicEntries).map { entry ->
                 val coverFile = manualCoverFile(context, entry)
-                val chosen = if (coverFile.exists()) runCatching { BitmapFactory.decodeFile(coverFile.absolutePath) }.getOrNull() else null
+                val chosen = if (coverFile.exists()) runCatching {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(coverFile.absolutePath, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / sample > 360 || bounds.outHeight / sample > 540) sample *= 2
+                    BitmapFactory.decodeFile(coverFile.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 })
+                }.getOrNull() else null
                 if (chosen != null) entry.copy(cover = chosen) else entry
             }
         }
