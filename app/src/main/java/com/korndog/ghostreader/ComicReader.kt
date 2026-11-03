@@ -37,7 +37,8 @@ internal fun ComicReader(file:File,onClose:()->Unit) {
  var message by remember(file) { mutableStateOf<String?>(null) }
  LaunchedEffect(file) { try { names=withContext(Dispatchers.IO) { pages(file) };index=index.coerceIn(0,(names.size-1).coerceAtLeast(0)) } catch(e:Exception){message=e.message} }
  LaunchedEffect(file,index,names) {
-  if(names.isNotEmpty()) try {\n   message=null
+  if(names.isNotEmpty()) try {
+   message=null
    image=withContext(Dispatchers.IO) {
     ZipFile(file).use { zip ->
      val entry=zip.getEntry(names[index]) ?: error("Missing page")
