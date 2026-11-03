@@ -295,19 +295,13 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     BackHandler { showHome = true }
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
-      0 -> Column(Modifier.fillMaxSize().statusBarsPadding()) {
-       if(pdfFiles.isNotEmpty()) {
-        Text("PDF Documents",color=violet,modifier=Modifier.padding(start=20.dp,top=8.dp,bottom=4.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-         pdfFiles.forEach { file -> Button(onClick={selectedPdf=file},modifier=Modifier.widthIn(max=220.dp)) { Text("Open PDF: "+file.name.substringAfter("_").removeSuffix(".pdf").take(18),maxLines=1) } }
-        }
-       }
-       Box(Modifier.weight(1f)) { LibraryScreen(
-       books = books, audio = audioFiles,
+      0 -> LibraryScreen(
+       books = books, audio = audioFiles, pdfs = pdfFiles,
        onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
-       onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it }
-      ) }
-      }
+       onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it },
+       onOpenPdf = { selectedPdf = it },
+       onDeletePdf = { file -> if(file.delete()) pdfFiles=scanPdfs(File(ctx.filesDir,"pdfs")) else error="Could not delete PDF" }
+      )
       1 -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Text("Add books and audiobooks you own.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)

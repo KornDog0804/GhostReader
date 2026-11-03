@@ -79,3 +79,18 @@ internal fun PdfReader(file:File,onClose:()->Unit) {
   }
  }
 }
+
+/** Generate the actual first PDF page as its bookshelf cover. */
+internal fun pdfCover(file:File):Bitmap =
+ ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+  PdfRenderer(fd).use { renderer ->
+   renderer.openPage(0).use { page ->
+    val width=360
+    val height=(width.toFloat()*page.height/page.width).toInt().coerceAtLeast(1).coerceAtMost(1200)
+    Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888).also { bmp ->
+     bmp.eraseColor(android.graphics.Color.WHITE)
+     page.render(bmp,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+    }
+   }
+  }
+ }
