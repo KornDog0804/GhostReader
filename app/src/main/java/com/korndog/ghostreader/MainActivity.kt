@@ -296,7 +296,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
       0 -> LibraryScreen(
-       books = books, audio = audioFiles, pdfs = pdfFiles,
+       books = books, audio = audioFiles, pdfs = pdfFiles, comics = comics,
+       onOpenComic = { selectedComic = it },
+       onDeleteComic = { file -> if(file.delete()) comics=scanComics(File(ctx.filesDir,"comics")) else error="Could not delete comic" },
        onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
        onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it },
        onOpenPdf = { selectedPdf = it },

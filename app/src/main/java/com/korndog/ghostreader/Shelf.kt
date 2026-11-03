@@ -80,7 +80,8 @@ internal data class ShelfEntry(
     val cover: Bitmap?,
     val durationMs: Long,
     val series: String,
-    val pdf: File? = null
+    val pdf: File? = null,
+    val comic: File? = null
 )
 
 /** Best guess at the series a book belongs to, from its title ("... Dungeon Crawler Carl Book 2"). */
@@ -203,6 +204,9 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
             } else {
                 ShelfCover(entry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
             }
+            if (entry.comic != null) {
+                Text("CBZ", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC6D3FD0), RoundedCornerShape(4.dp)).padding(horizontal=4.dp, vertical=2.dp))
+            }
             if (entry.pdf != null) {
                 Text("PDF", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC6D3FD0), RoundedCornerShape(4.dp)).padding(horizontal=4.dp, vertical=2.dp))
             }
@@ -298,7 +302,8 @@ private fun GroupList(
 private fun entryId(entry: ShelfEntry): String =
     entry.book?.let { "book:" + it.file.absolutePath + "#" + it.sectionPrefix }
         ?: entry.audio?.let { "audio:" + it.absolutePath }
-        ?: "pdf:" + entry.pdf!!.absolutePath
+        ?: entry.pdf?.let { "pdf:" + it.absolutePath }
+        ?: "comic:" + entry.comic!!.absolutePath
 
 private fun manualCoverFile(context: android.content.Context, entry: ShelfEntry): File {
     val digest = MessageDigest.getInstance("SHA-256").digest(entryId(entry).toByteArray(Charsets.UTF_8))
@@ -312,6 +317,9 @@ internal fun LibraryScreen(
     books: List<Book>,
     audio: List<File>,
     pdfs: List<File>,
+    comics: List<File>,
+    onOpenComic: (File) -> Unit,
+    onDeleteComic: (File) -> Unit,
     onOpenPdf: (File) -> Unit,
     onDeletePdf: (File) -> Unit,
     onOpenBook: (Book) -> Unit,
@@ -374,7 +382,11 @@ internal fun LibraryScreen(
                 val cover = runCatching { pdfCover(file) }.getOrNull()
                 ShelfEntry(null, null, title, "", cover, 0L, seriesOf(title), pdf=file)
             }
-            (audios + ebooks + documents).map { entry ->
+            val comicEntries = comics.map { file ->
+                val title = file.nameWithoutExtension.substringAfter("_").replace('_', ' ').trim().ifBlank { "Comic" }
+                ShelfEntry(null, null, title, "", null, 0L, seriesOf(title), comic=file)
+            }
+            (audios + ebooks + documents + comicEntries).map { entry ->
                 val coverFile = manualCoverFile(context, entry)
                 val chosen = if (coverFile.exists()) runCatching { BitmapFactory.decodeFile(coverFile.absolutePath) }.getOrNull() else null
                 if (chosen != null) entry.copy(cover = chosen) else entry
@@ -402,7 +414,7 @@ internal fun LibraryScreen(
         manualOrder = ids
         orderPrefs.edit().putString("order", JSONArray(ids).toString()).apply()
     }
-    val open: (ShelfEntry) -> Unit = { e -> e.book?.let(onOpenBook) ?: e.audio?.let(onOpenAudio) ?: e.pdf?.let(onOpenPdf) }
+    val open: (ShelfEntry) -> Unit = { e -> e.book?.let(onOpenBook) ?: e.audio?.let(onOpenAudio) ?: e.pdf?.let(onOpenPdf) ?: e.comic?.let(onOpenComic) }
     val long: (ShelfEntry) -> Unit = { e -> menuEntry = e }
 
     menuEntry?.let { entry ->
@@ -435,7 +447,7 @@ internal fun LibraryScreen(
             dismissButton = {
                 TextButton(onClick = {
                     menuEntry = null
-                    entry.book?.let(onDeleteBook) ?: entry.audio?.let(onDeleteAudio) ?: entry.pdf?.let(onDeletePdf)
+                    entry.book?.let(onDeleteBook) ?: entry.audio?.let(onDeleteAudio) ?: entry.pdf?.let(onDeletePdf) ?: entry.comic?.let(onDeleteComic)
                 }) { Text("Delete") }
             }
         )
