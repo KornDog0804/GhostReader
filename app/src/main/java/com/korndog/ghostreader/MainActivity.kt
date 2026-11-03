@@ -278,7 +278,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+  if(selectedPdf != null) {
+   key(selectedPdf!!.absolutePath) { PdfReader(selectedPdf!!,onClose={selectedPdf=null}) }
+  } else Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selectedPdf != null) {
     PdfReader(selectedPdf!!,onClose={selectedPdf=null})
    } else if (selectedComic != null) {
@@ -297,7 +299,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        if(pdfFiles.isNotEmpty()) {
         Text("PDF Documents",color=violet,modifier=Modifier.padding(start=20.dp,top=8.dp,bottom=4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-         pdfFiles.forEach { file -> OutlinedButton(onClick={selectedPdf=file},modifier=Modifier.widthIn(max=220.dp)) { Text(file.name.substringAfter("_").removeSuffix(".pdf").take(24),maxLines=1) } }
+         pdfFiles.forEach { file -> Button(onClick={selectedPdf=file},modifier=Modifier.widthIn(max=220.dp)) { Text("Open PDF: "+file.name.substringAfter("_").removeSuffix(".pdf").take(18),maxLines=1) } }
         }
        }
        Box(Modifier.weight(1f)) { LibraryScreen(
