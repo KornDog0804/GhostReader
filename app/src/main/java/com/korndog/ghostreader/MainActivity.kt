@@ -120,6 +120,11 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var backupBusy by remember { mutableStateOf(false) }
  var backupStatus by remember { mutableStateOf("") }
  var savedBackupUri by remember { mutableStateOf<android.net.Uri?>(null) }
+ var syncUrl by remember { mutableStateOf(CloudSync.url(ctx)) }
+ var syncKey by remember { mutableStateOf(CloudSync.key(ctx)) }
+ var syncBusy by remember { mutableStateOf(false) }
+ var syncStatus by remember { mutableStateOf(if (CloudSync.lastSync(ctx) > 0) "Last synced " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(CloudSync.lastSync(ctx))) else "Sync is not set up") }
+ val syncWorker = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
  var backupPercent by remember { mutableIntStateOf(0) }
  var backupPhase by remember { mutableStateOf("") }
  var torrentBusy by remember { mutableStateOf(false) }
@@ -352,6 +357,30 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
       else -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Settings", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Spacer(Modifier.height(16.dp))
+       Text("SYNC  •  CLOUDFLARE", color = violet, fontWeight = FontWeight.Bold)
+       Spacer(Modifier.height(8.dp))
+       OutlinedTextField(value = syncUrl, onValueChange = { syncUrl = it }, label = { Text("Sync address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+       Spacer(Modifier.height(8.dp))
+       OutlinedTextField(value = syncKey, onValueChange = { syncKey = it }, label = { Text("Sync key") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(enabled = !syncBusy && !backupBusy, onClick = {
+        CloudSync.save(ctx, syncUrl, syncKey)
+        syncBusy = true
+        syncStatus = "Connecting…"
+        syncWorker.execute {
+         val result = runCatching { CloudSync.syncNow(ctx.applicationContext) { status -> uiHandler.post { syncStatus = status } } }
+         uiHandler.post {
+          syncBusy = false
+          books = scanBooks(shelf)
+          pdfFiles = scanPdfs(File(ctx.filesDir, "pdfs").apply { mkdirs() })
+          comics = scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })
+          syncStatus = result.getOrElse { "Sync failed: " + (it.message ?: "unknown error") }
+         }
+        }
+       }) { Text(if (syncBusy) "Syncing…" else "Save & sync") }
+       Text(syncStatus, color = violet, style = MaterialTheme.typography.bodySmall)
+       Text("Keeps ebooks, PDFs and comics the same on every device using your own Cloudflare. Audiobooks and reading progress are not synced yet. Nothing on this phone is ever deleted by sync.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+       Spacer(Modifier.height(24.dp))
        Text("SHARED LIBRARY  •  GOOGLE DRIVE", color = violet, fontWeight = FontWeight.Bold)
        Spacer(Modifier.height(8.dp))
        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
