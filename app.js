@@ -312,6 +312,7 @@ async function openBook(id) {
   $("#rt").textContent = rec.title;
   applyChrome();
   await showChapter(R.ci, { frac: saved.f || 0 });
+  const opened = R; setTimeout(() => { if (R === opened) $("#reader").classList.add("chromeoff"); }, 2500);
 }
 
 async function showChapter(ci, { frac = 0, end = false } = {}) {
@@ -452,7 +453,8 @@ async function openComic(id) {
  const saved=LS.get(`gr:c:${id}`,{});
  C={id,format:rec.format,rtl:!!rec.manga,page:saved.page||0,pages:[],zip:null};
  $("#ctitle").textContent=rec.title;
- $("#library").hidden=true; $("#comicreader").hidden=false;
+ $("#library").hidden=true; $("#comicreader").hidden=false; $("#comicreader").classList.remove("chromeoff");
+ { const mine=C; setTimeout(()=>{ if(C===mine) $("#comicreader").classList.add("chromeoff"); },2500); }
  $("#cdir").textContent=C.rtl?"RTL":"LTR"; $("#cmode").textContent="Page";
  $("#pdfpage").hidden=true; comicImage.hidden=false; $("#comicbar").hidden=false;
  if(rec.format==="pdf") {
@@ -486,7 +488,7 @@ $("#cmode").addEventListener("click",()=>{
  $("#cmode").textContent=scroll?"Scroll":"Page";
 });
 let comicSwipedAt = 0;
-comicImage.addEventListener("click",e=>{if(Date.now()-comicSwipedAt<500)return;const x=e.offsetX/e.target.clientWidth;turnComic(x<.4?-1:x>.6?1:0);});
+comicImage.addEventListener("click",e=>{if(Date.now()-comicSwipedAt<500)return;const x=e.offsetX/e.target.clientWidth;if(x<.4)turnComic(-1);else if(x>.6)turnComic(1);else $("#comicreader").classList.toggle("chromeoff");});
 // Swipe to turn pages: swipe right = forward, swipe left = back (reversed automatically for right-to-left manga).
 function addSwipe(el, onSwipe, allowed) {
  let s = null;

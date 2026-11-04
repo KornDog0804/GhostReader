@@ -167,3 +167,16 @@ h3.sec{margin:22px 0 12px;font-size:12px;font-weight:700;letter-spacing:.16em;co
 #library>.ver{width:auto;display:block;margin:18px auto 0}
 #library>#syncbtn{margin-top:30px}
 .status{width:100%}
+
+/* ===== Full-screen reading: pages fill the screen; bars float on top (tap the centre to show/hide) ===== */
+#reader #stage{top:calc(env(safe-area-inset-top) + 10px);bottom:calc(env(safe-area-inset-bottom) + 10px)}
+#reader .bar{background:#101018f2}
+#comicreader{padding-top:0}
+#comicstage{position:absolute;inset:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);background:#050509}
+#comicreader>header.bar,#comicbar{position:absolute;left:0;right:0;z-index:5;transition:transform .2s;background:#101018f2}
+#comicreader>header.bar{top:0;padding-top:calc(8px + env(safe-area-inset-top))}
+#comicbar{bottom:0;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+#comicreader.chromeoff>header.bar{transform:translateY(-110%)}
+#comicreader.chromeoff #comicbar{transform:translateY(110%)}
+#comicpage{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
+#comicstage.scrollmode #comicpage{width:100%;height:auto;object-fit:initial}
