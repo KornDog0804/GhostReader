@@ -85,7 +85,7 @@ async function renderLibrary() {
   $("#empty").hidden = items.length > 0;
   $("#grid").style.display = items.length ? "" : "none";
   const cont = items.filter((it) => { const p = progressOf(kind, it.id); const f = kind === "b" || kind === "c" ? p?.o : p?.d ? p.t / p.d : 0; return p && f > 0.005 && f < 0.97; }).slice(0, 8);
-  $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, srcs.get(it.id))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : "All audiobooks"}</h3>` : "";
+  $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, srcs.get(it.id))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : tab === "manga" ? "All manga" : tab === "comics" ? "All comics" : "All audiobooks"}</h3>` : "";
   $("#grid").innerHTML = items.map((it) => posterHtml(it, kind, srcs.get(it.id))).join("");
   const previousUrls = urls;
   urls = nextUrls;
