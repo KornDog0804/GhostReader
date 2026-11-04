@@ -140,9 +140,21 @@ internal object CloudSync {
 
         val prefs = context.getSharedPreferences("cloudsync", 0)
         val fetched = prefs.getStringSet("fetched", emptySet())!!.toMutableSet()
-        val local = localItems(context)
-        val have = local.map { it.hash }.toMutableSet().also { it.addAll(fetched) }
+        val allLocal = localItems(context)
         val remoteMeta = remote.list("m/").map { it.removePrefix("m/").removeSuffix(".json") }.toSet()
+        // Items deleted "everywhere" from another device (the website records them in state.json as "x|<hash>").
+        val gone = runCatching {
+            val st = JSONObject(remote.getText("state.json") ?: "{}")
+            st.keys().asSequence().filter { it.startsWith("x|") }.map { it.removePrefix("x|") }.toSet()
+        }.getOrDefault(emptySet())
+        var removed = 0
+        val local = allLocal.filter { item ->
+            if (item.hash in gone) { if (item.file.delete()) removed++; false } else true
+        }
+        // Remember everything this phone has ever had, so something deleted here is not downloaded again.
+        fetched.addAll(local.map { it.hash })
+        prefs.edit().putStringSet("fetched", fetched).apply()
+        val have = local.map { it.hash }.toMutableSet().also { it.addAll(fetched) }
 
         var up = 0; var down = 0; var skipped = 0; var failed = 0
         var n = 0
@@ -162,7 +174,7 @@ internal object CloudSync {
             up++
         }
 
-        val toGet = remoteMeta.filter { it !in have }
+        val toGet = remoteMeta.filter { it !in have && it !in gone }
         var d = 0
         for (hash in toGet) {
             d++
@@ -189,7 +201,7 @@ internal object CloudSync {
             down++
         }
         prefs.edit().putLong("last", System.currentTimeMillis()).apply()
-        return "Synced. $up sent, $down received" + (if (skipped > 0) ", $skipped too big to sync" else "") + (if (failed > 0) ", $failed hit a connection problem, tap Save & sync again" else "") + "."
+        return "Synced. $up sent, $down received" + (if (skipped > 0) ", $skipped too big to sync" else "") + (if (removed > 0) ", $removed removed (deleted on another device)" else "") + (if (failed > 0) ", $failed hit a connection problem, tap Save & sync again" else "") + "."
     }
 
     private const val PART = 50L * 1024 * 1024
