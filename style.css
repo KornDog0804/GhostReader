@@ -98,3 +98,7 @@ h3.sec{margin:18px 0 10px;font-size:13px;letter-spacing:.14em;color:var(--dim);t
 .dlg h3{margin:0 0 6px}.dlg label{display:block;margin:12px 0;font-size:13px;color:var(--dim)}
 .dlg input{display:block;width:100%;margin-top:6px;padding:12px;border-radius:10px;border:1px solid #ffffff2a;background:#0a0614;color:var(--ink);font-size:16px}
 .dlgbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.dim{color:var(--dim);font-size:13px}.small{font-size:12px}.dlg a{color:var(--lime)}
+
+.cloudaudio{padding:8px 16px 0;max-width:720px;margin:0 auto}
+.cloudaudio .crow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #ffffff14}
+.cloudaudio small,.cloudaudio .dim{color:var(--dim)}

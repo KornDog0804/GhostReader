@@ -101,3 +101,63 @@ export async function syncNow(onStatus = () => {}) {
     return `Synced. ${sum.up} sent, ${sum.down} received${sum.skipped ? `, ${sum.skipped} too big to sync` : ""}.`;
   } finally { running = false; }
 }
+
+/* ---------- audiobooks: opt-in, one at a time, in 50 MB pieces ---------- */
+const PART = 50 * 1024 * 1024;
+const audioMime = (n) => (/\.mp3$/i.test(n) ? "audio/mpeg" : "audio/mp4");
+async function withRetry(fn, tries = 4) {
+  let last;
+  for (let i = 0; i < tries; i++) { try { return await fn(); } catch (e) { if (/Wrong sync key/.test(e.message)) throw e; last = e; await new Promise((r) => setTimeout(r, 1500 * (i + 1))); } }
+  throw last;
+}
+
+/** Audiobooks that are in the cloud but not on this device. */
+export async function listCloudAudio() {
+  const cfg = getConfig();
+  if (!cfg?.url || !cfg?.key) throw new Error("Sync isn't set up yet");
+  const R = new Remote(cfg);
+  await R.ping();
+  const mine = new Set();
+  for (const it of await DB.all("audio")) mine.add(await sha1(`audio|${it.name}|${it.size}`));
+  const hashes = (await R.list("m/")).map((k) => k.slice(2, 42));
+  const out = [];
+  await Promise.all(hashes.map(async (h) => {
+    const m = await R.getJson(`m/${h}.json`).catch(() => null);
+    if (m && m.store === "audio" && m.parts) out.push({ hash: h, meta: m, here: mine.has(h) });
+  }));
+  return out.sort((a, b) => (a.meta.title || "").localeCompare(b.meta.title || ""));
+}
+
+/** Download one cloud audiobook onto this device. Returns the new local id. */
+export async function downloadCloudAudio(hash, m, onStatus = () => {}) {
+  const R = new Remote(getConfig());
+  const parts = [];
+  for (let i = 0; i < m.parts; i++) {
+    onStatus(`Downloading part ${i + 1} of ${m.parts}…`);
+    const key = "f/" + (await sha1(`${hash}|part|${i}`));
+    parts.push(await withRetry(() => R.getBlob(key)));
+  }
+  const blob = new Blob(parts, { type: audioMime(m.name) });
+  if (blob.size !== m.size) throw new Error("Download was incomplete, try again");
+  const id = await DB.put("audio", { name: m.name, size: m.size, title: m.title, author: m.author || "", cover: null, blob, added: Date.now() });
+  const cv = await R.getText("c/" + hash).catch(() => null);
+  if (cv) await DB.put("covers", { key: `audio:${id}`, size: 0, data: cv, manual: true });
+  return id;
+}
+
+/** Send one audiobook from this device to the cloud. */
+export async function uploadCloudAudio(rec, onStatus = () => {}) {
+  const R = new Remote(getConfig());
+  const hash = await sha1(`audio|${rec.name}|${rec.size}`);
+  const have = new Set(await R.list("f/"));
+  const parts = Math.max(1, Math.ceil(rec.blob.size / PART));
+  for (let i = 0; i < parts; i++) {
+    const key = "f/" + (await sha1(`${hash}|part|${i}`));
+    if (have.has(key)) continue;
+    onStatus(`Uploading part ${i + 1} of ${parts}…`);
+    await withRetry(() => R.put(key, rec.blob.slice(i * PART, (i + 1) * PART), "application/octet-stream"));
+  }
+  const cv = await DB.get("covers", `audio:${rec.id}`).catch(() => null);
+  if (cv?.data) await R.put("c/" + hash, cv.data, "text/plain");
+  await R.put(`m/${hash}.json`, JSON.stringify({ store: "audio", name: rec.name, size: rec.size, title: rec.title, author: rec.author || "", format: null, parts, partSize: PART, manga: false, added: Date.now() }), "application/json");
+}

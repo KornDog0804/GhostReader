@@ -3,7 +3,7 @@ import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
 import { PageEngine } from "./page-engine.js";
 import * as DB from "./db.js";
-import { getConfig, setConfig, syncNow, isSyncing } from "./sync.js";
+import { getConfig, setConfig, syncNow, isSyncing, listCloudAudio, downloadCloudAudio, uploadCloudAudio } from "./sync.js";
 import { parseName, fetchCover, fetchGoogleCover, findCoverUrls } from "./covers.js";
 
 const $ = (s) => document.querySelector(s);
@@ -82,7 +82,8 @@ async function renderLibrary() {
   const srcs = new Map();
   for (const it of items) srcs.set(it.id, await coverSrc(it, kind === "a" ? "audio" : "books"));
   if (seq !== libraryRenderSeq) return;
-  $("#empty").hidden = items.length > 0;
+  $("#empty").hidden = items.length > 0 || tab === "audio";
+  renderCloudAudio();
   $("#grid").style.display = items.length ? "" : "none";
   const cont = items.filter((it) => { const p = progressOf(kind, it.id); const f = kind === "b" || kind === "c" ? p?.o : p?.d ? p.t / p.d : 0; return p && f > 0.005 && f < 0.97; }).slice(0, 8);
   $("#continue").innerHTML = cont.length ? `<h3 class="sec">Continue</h3><div class="row-scroll">${cont.map((it) => posterHtml(it, kind, srcs.get(it.id))).join("")}</div><h3 class="sec">${tab === "books" ? "All books" : tab === "manga" ? "All manga" : tab === "comics" ? "All comics" : "All audiobooks"}</h3>` : "";
@@ -93,6 +94,38 @@ async function renderLibrary() {
   // iPad Safari may decode off-screen covers much later than the DOM update.
   // Keep prior blob URLs alive until the next library session.
   setTimeout(() => previousUrls.forEach(u => URL.revokeObjectURL(u)), 60000);
+}
+
+let cloudBusy = false;
+function renderCloudAudio() {
+  const box = $("#cloudaudio");
+  box.hidden = tab !== "audio";
+  if (tab !== "audio" || cloudBusy) return;
+  box.innerHTML = getConfig()
+    ? `<button class="pill" id="cloudload">☁ Audiobooks in the cloud</button><div id="cloudlist"></div>`
+    : `<p class="dim">Turn on Sync (tap the Sync line below) to bring audiobooks over from your phone.</p>`;
+  const btn = $("#cloudload");
+  if (btn) btn.onclick = async () => {
+    const list = $("#cloudlist"); list.textContent = "Looking…";
+    try {
+      const rows = await listCloudAudio();
+      if (!rows.length) { list.textContent = "Nothing in the cloud yet. On the phone app, long-press an audiobook and tap Send to Cloudflare."; return; }
+      list.innerHTML = rows.map((r) => `<div class="crow"><div><b>${esc(r.meta.title || r.meta.name)}</b><br><small>${Math.round(r.meta.size / 1048576)} MB</small></div>${r.here ? '<span class="dim">On this device</span>' : `<button class="pill primary" data-h="${r.hash}">Download</button>`}</div>`).join("");
+      list.onclick = async (e) => {
+        const b = e.target.closest("button[data-h]"); if (!b || cloudBusy) return;
+        const row = rows.find((x) => x.hash === b.dataset.h);
+        cloudBusy = true; b.disabled = true;
+        let wl; try { wl = await navigator.wakeLock?.request("screen"); } catch {}
+        try {
+          await downloadCloudAudio(row.hash, row.meta, (t) => { b.textContent = t; });
+          b.textContent = "Done ✓"; row.here = true;
+        } catch (err) { b.textContent = "Retry"; b.disabled = false; setStatus("Audiobook download didn't finish: " + (err.message || err)); setTimeout(() => setStatus(""), 8000); }
+        try { wl?.release(); } catch {}
+        cloudBusy = false;
+        renderLibrary();
+      };
+    } catch (err) { list.textContent = "Couldn't reach the cloud: " + (err.message || err); }
+  };
 }
 
 document.addEventListener("click", (e) => {
@@ -112,7 +145,7 @@ document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("cli
 
 function showMenu(anchor, kind, id) {
   const m = $("#menu"), r = anchor.getBoundingClientRect();
-  m.innerHTML = `<button data-act="cover">Find cover online</button><button data-act="pick">Choose cover image…</button><button data-act="del">Remove from this device</button>`;
+  m.innerHTML = `<button data-act="cover">Find cover online</button><button data-act="pick">Choose cover image…</button>${kind === "a" && getConfig() ? '<button data-act="send">Send to cloud</button>' : ""}<button data-act="del">Remove from this device</button>`;
   m.hidden = false;
   m.style.top = Math.min(r.bottom + 4, innerHeight - 110) + "px";
   m.style.left = Math.max(8, Math.min(r.right - 180, innerWidth - 190)) + "px";
@@ -122,6 +155,13 @@ function showMenu(anchor, kind, id) {
     const store = kind === "a" ? "audio" : "books";
     if (act === "del") { if (confirm("Remove this from the tablet?")) { await DB.del(store, id); DB.del("covers", `${store}:${id}`).catch(() => {}); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
     const key = `${store}:${id}`;
+    if (act === "send") {
+      try {
+        const rec = await DB.get("audio", id);
+        await uploadCloudAudio(rec, (t) => setStatus(t));
+        setStatus("Sent to the cloud."); setTimeout(() => setStatus(""), 4000);
+      } catch (err) { setStatus("Didn't finish: " + (err.message || err) + ". Try again to resume."); }
+    }
     if (act === "cover") {
       setStatus("Looking for a cover…");
       try { await DB.del("covers", key); } catch {}
