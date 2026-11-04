@@ -3,7 +3,7 @@ import { Zip } from "./zip.js";
 import { Epub } from "./epub.js";
 import { PageEngine } from "./page-engine.js";
 import * as DB from "./db.js";
-import { getConfig, setConfig, syncNow, isSyncing, listCloudAudio, downloadCloudAudio, uploadCloudAudio } from "./sync.js";
+import { getConfig, setConfig, syncNow, isSyncing, listCloudAudio, downloadCloudAudio, uploadCloudAudio, itemHash, ignoreHash, deleteEverywhere } from "./sync.js";
 import { parseName, fetchCover, fetchGoogleCover, findCoverUrls } from "./covers.js";
 
 const $ = (s) => document.querySelector(s);
@@ -145,7 +145,7 @@ document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("cli
 
 function showMenu(anchor, kind, id) {
   const m = $("#menu"), r = anchor.getBoundingClientRect();
-  m.innerHTML = `<button data-act="cover">Find cover online</button><button data-act="pick">Choose cover image…</button>${kind === "a" && getConfig() ? '<button data-act="send">Send to cloud</button>' : ""}<button data-act="del">Remove from this device</button>`;
+  m.innerHTML = `<button data-act="cover">Find cover online</button><button data-act="pick">Choose cover image…</button>${kind === "a" && getConfig() ? '<button data-act="send">Send to cloud</button>' : ""}<button data-act="del">Remove from this device</button>${getConfig() ? '<button data-act="delall">Delete everywhere (cloud too)</button>' : ""}`;
   m.hidden = false;
   m.style.top = Math.min(r.bottom + 4, innerHeight - 110) + "px";
   m.style.left = Math.max(8, Math.min(r.right - 180, innerWidth - 190)) + "px";
@@ -153,7 +153,18 @@ function showMenu(anchor, kind, id) {
     const act = e.target.dataset.act; if (!act) return;
     m.hidden = true;
     const store = kind === "a" ? "audio" : "books";
-    if (act === "del") { if (confirm("Remove this from the tablet?")) { await DB.del(store, id); DB.del("covers", `${store}:${id}`).catch(() => {}); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
+    if (act === "delall") {
+      if (!confirm("Delete this from the cloud AND from every device that syncs? This can't be undone.")) return;
+      try {
+        const rec = await DB.get(store, id);
+        setStatus("Deleting everywhere…");
+        if (rec) await deleteEverywhere(store, rec);
+        await DB.del(store, id); DB.del("covers", `${store}:${id}`).catch(() => {}); localStorage.removeItem(`gr:${kind}:${id}`);
+        setStatus("Deleted everywhere."); setTimeout(() => setStatus(""), 4000); renderLibrary();
+      } catch (err) { setStatus("Couldn't delete: " + (err.message || err)); }
+      return;
+    }
+    if (act === "del") { if (confirm("Remove this from this device? It stays in the cloud and won't come back here on its own.")) { { const r0 = await DB.get(store, id); if (r0) ignoreHash(await itemHash(store, r0)); } await DB.del(store, id); DB.del("covers", `${store}:${id}`).catch(() => {}); localStorage.removeItem(`gr:${kind}:${id}`); renderLibrary(); } }
     const key = `${store}:${id}`;
     if (act === "send") {
       try {

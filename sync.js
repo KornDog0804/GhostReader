@@ -10,6 +10,10 @@ export const getConfig = () => LS.get("gr:sync", null);
 export const setConfig = (c) => (c ? LS.set("gr:sync", c) : localStorage.removeItem("gr:sync"));
 
 const sha1 = async (s) => [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+export const itemHash = (store, it) => sha1(`${store}|${it.name}|${it.size}`);
+const ignoredSet = () => new Set(LS.get("gr:ignored", []));
+/** Remember that this device removed an item, so sync never brings it back here. */
+export function ignoreHash(h) { const s = ignoredSet(); s.add(h); LS.set("gr:ignored", [...s]); }
 const kindOf = (store, it) => (store === "audio" ? "a" : it.format === "cbz" || it.format === "pdf" ? "c" : "b");
 
 class Remote {
@@ -24,6 +28,7 @@ class Remote {
   async getJson(key) { const r = await this.req("/o/" + encodeURIComponent(key)); return r.ok ? r.json() : null; }
   async getText(key) { const r = await this.req("/o/" + encodeURIComponent(key)); return r.ok ? r.text() : null; }
   async getBlob(key) { const r = await this.req("/o/" + encodeURIComponent(key)); if (!r.ok) throw new Error("Download failed (" + r.status + ")"); return r.blob(); }
+  async del(key) { const r = await this.req("/o/" + encodeURIComponent(key), { method: "DELETE" }); if (!r.ok && r.status !== 404) throw new Error("Delete failed (" + r.status + ")"); }
   async put(key, body, type) { const r = await this.req("/o/" + encodeURIComponent(key), { method: "PUT", body, headers: { "Content-Type": type } }); if (!r.ok) throw new Error("Upload failed (" + r.status + ")"); }
 }
 
@@ -45,6 +50,18 @@ export async function syncNow(onStatus = () => {}) {
     for (const store of ["books", "audio"]) for (const it of await DB.all(store)) local.push({ store, it, hash: await sha1(`${store}|${it.name}|${it.size}`) });
     const remoteMeta = new Set((await R.list("m/")).map((k) => k.slice(2, 42)));
     const have = new Set(local.map((x) => x.hash));
+    const state = (await R.getJson("state.json")) || {};
+    const gone = new Set(Object.keys(state).filter((k) => k.startsWith("x|")).map((k) => k.slice(2))); // deleted everywhere
+    const ign = ignoredSet();
+
+    // 0) anything deleted "everywhere" on another device goes from this one too
+    for (let i = local.length - 1; i >= 0; i--) {
+      const x = local[i];
+      if (!gone.has(x.hash)) continue;
+      await DB.del(x.store, x.it.id); DB.del("covers", `${x.store}:${x.it.id}`).catch(() => {});
+      localStorage.removeItem(`gr:${kindOf(x.store, x.it)}:${x.it.id}`);
+      local.splice(i, 1); have.delete(x.hash); sum.removed = (sum.removed || 0) + 1;
+    }
 
     // 1) upload what the server doesn't have yet (audiobooks stay on-device: too big for the free Worker upload limit)
     let n = 0;
@@ -61,7 +78,7 @@ export async function syncNow(onStatus = () => {}) {
     }
 
     // 2) download what this device doesn't have
-    const toGet = [...remoteMeta].filter((h) => !have.has(h));
+    const toGet = [...remoteMeta].filter((h) => !have.has(h) && !ign.has(h) && !gone.has(h));
     let d = 0;
     for (const h of toGet) {
       d++;
@@ -87,7 +104,6 @@ export async function syncNow(onStatus = () => {}) {
 
     // 4) reading progress: newest timestamp wins, in both directions
     onStatus("Syncing reading progress…");
-    const state = (await R.getJson("state.json")) || {};
     let dirty = false;
     for (const x of local) {
       const kind = kindOf(x.store, x.it), lk = `gr:${kind}:${x.it.id}`, sk = `${kind}|${x.hash}`;
@@ -98,7 +114,7 @@ export async function syncNow(onStatus = () => {}) {
     if (dirty) await R.put("state.json", JSON.stringify(state), "application/json");
 
     LS.set("gr:synctime", Date.now());
-    return `Synced. ${sum.up} sent, ${sum.down} received${sum.skipped ? `, ${sum.skipped} too big to sync` : ""}.`;
+    return `Synced. ${sum.up} sent, ${sum.down} received${sum.skipped ? `, ${sum.skipped} too big to sync` : ""}${sum.removed ? `, ${sum.removed} removed (deleted on another device)` : ""}.`;
   } finally { running = false; }
 }
 
@@ -160,4 +176,22 @@ export async function uploadCloudAudio(rec, onStatus = () => {}) {
   const cv = await DB.get("covers", `audio:${rec.id}`).catch(() => null);
   if (cv?.data) await R.put("c/" + hash, cv.data, "text/plain");
   await R.put(`m/${hash}.json`, JSON.stringify({ store: "audio", name: rec.name, size: rec.size, title: rec.title, author: rec.author || "", format: null, parts, partSize: PART, manga: false, added: Date.now() }), "application/json");
+}
+
+/** Delete an item from the cloud AND tell every device to remove it. */
+export async function deleteEverywhere(store, it) {
+  const cfg = getConfig();
+  if (!cfg?.url || !cfg?.key) throw new Error("Sync isn't set up yet");
+  const R = new Remote(cfg);
+  const hash = await itemHash(store, it);
+  const meta = await R.getJson(`m/${hash}.json`).catch(() => null);
+  const keys = ["f/" + hash, "c/" + hash];
+  if (meta?.parts) for (let i = 0; i < meta.parts; i++) keys.push("f/" + (await sha1(`${hash}|part|${i}`)));
+  for (const k of keys) await R.del(k);
+  await R.del(`m/${hash}.json`);
+  const state = (await R.getJson("state.json")) || {};
+  state["x|" + hash] = { ts: Date.now() };
+  await R.put("state.json", JSON.stringify(state), "application/json");
+  ignoreHash(hash);
+  return hash;
 }
