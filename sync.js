@@ -68,12 +68,21 @@ export async function syncNow(onStatus = () => {}) {
     for (const x of local) {
       if (x.store === "audio" || remoteMeta.has(x.hash)) continue;
       n++;
-      if (x.it.blob.size > MAX_FILE) { sum.skipped++; continue; }
+      const big = x.it.blob.size > MAX_FILE;
+      if (x.it.blob.size > 2 * 1024 * 1024 * 1024) { sum.skipped++; continue; }
       onStatus(`Uploading ${n}: ${x.it.title || x.it.name}…`);
-      await R.put("f/" + x.hash, x.it.blob, "application/octet-stream");
+      if (big) {
+        const have2 = new Set(await R.list("f/")), parts = Math.ceil(x.it.blob.size / PART);
+        for (let i = 0; i < parts; i++) {
+          const key = "f/" + (await sha1(`${x.hash}|part|${i}`));
+          if (have2.has(key)) continue;
+          onStatus(`Uploading ${n}: ${x.it.title || x.it.name} (part ${i + 1} of ${parts})…`);
+          await withRetry(() => R.put(key, x.it.blob.slice(i * PART, (i + 1) * PART), "application/octet-stream"));
+        }
+      } else await R.put("f/" + x.hash, x.it.blob, "application/octet-stream");
       const cv = await DB.get("covers", `${x.store}:${x.it.id}`).catch(() => null);
       if (cv?.data) await R.put("c/" + x.hash, cv.data, "text/plain");
-      await R.put(`m/${x.hash}.json`, JSON.stringify({ store: x.store, name: x.it.name, size: x.it.size, title: x.it.title, author: x.it.author, format: x.it.format || null, manga: !!x.it.manga, added: x.it.added || Date.now() }), "application/json");
+      await R.put(`m/${x.hash}.json`, JSON.stringify({ store: x.store, name: x.it.name, size: x.it.size, title: x.it.title, author: x.it.author, format: x.it.format || null, manga: !!x.it.manga, added: x.it.added || Date.now(), ...(big ? { parts: Math.ceil(x.it.blob.size / PART), partSize: PART } : {}) }), "application/json");
       sum.up++;
     }
 
@@ -85,7 +94,17 @@ export async function syncNow(onStatus = () => {}) {
       const m = await R.getJson(`m/${h}.json`);
       if (!m || m.store !== "books") continue;
       onStatus(`Downloading ${d} of ${toGet.length}: ${m.title || m.name}…`);
-      const blob = await R.getBlob("f/" + h);
+      let blob;
+      if (m.parts) {
+        const bits = [];
+        for (let i = 0; i < m.parts; i++) {
+          onStatus(`Downloading ${d} of ${toGet.length}: ${m.title || m.name} (part ${i + 1} of ${m.parts})…`);
+          const key = "f/" + (await sha1(`${h}|part|${i}`));
+          bits.push(await withRetry(() => R.getBlob(key)));
+        }
+        blob = new Blob(bits);
+        if (blob.size !== m.size) throw new Error("Download of " + (m.title || m.name) + " was incomplete, tap Sync again");
+      } else blob = await R.getBlob("f/" + h);
       const id = await DB.put("books", { name: m.name, size: m.size, title: m.title, author: m.author, format: m.format || undefined, manga: m.manga, cover: null, blob, added: m.added });
       const cv = await R.getText("c/" + h);
       if (cv) await DB.put("covers", { key: `books:${id}`, size: 0, data: cv, manual: true });
