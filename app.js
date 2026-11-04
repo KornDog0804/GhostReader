@@ -419,6 +419,7 @@ function comicProgress() {
 async function showComicPage() {
  if (!C) return;
  if (C.format === "pdf") {
+  if (!C.pdf) return; // still opening (or closed): nothing to draw yet
   const mine = C;
   const cur = C.page;
   $("#cprogress").textContent = "Loading page " + (cur + 1) + "…";
@@ -430,7 +431,7 @@ async function showComicPage() {
    comicUrl = URL.createObjectURL(blob);
    comicImage.src = comicUrl;
    comicProgress();
-  } catch (err) { setStatus("Could not draw this PDF page: " + (err.message || err)); }
+  } catch (err) { if (C === mine) setStatus("Could not draw this PDF page: " + (err.message || err)); }
   return;
  }
  if (comicUrl) URL.revokeObjectURL(comicUrl);
@@ -484,7 +485,27 @@ $("#cmode").addEventListener("click",()=>{
  const scroll=$("#comicstage").classList.toggle("scrollmode");
  $("#cmode").textContent=scroll?"Scroll":"Page";
 });
-comicImage.addEventListener("click",e=>{const x=e.offsetX/e.target.clientWidth;turnComic(x<.4?-1:x>.6?1:0);});
+let comicSwipedAt = 0;
+comicImage.addEventListener("click",e=>{if(Date.now()-comicSwipedAt<500)return;const x=e.offsetX/e.target.clientWidth;turnComic(x<.4?-1:x>.6?1:0);});
+// Swipe to turn pages: swipe right = forward, swipe left = back (reversed automatically for right-to-left manga).
+function addSwipe(el, onSwipe, allowed) {
+ let s = null;
+ el.addEventListener("touchstart", (e) => { if (e.touches.length !== 1) { s = null; return; } const t = e.touches[0]; s = { x: t.clientX, y: t.clientY, at: Date.now() }; }, { passive: true });
+ el.addEventListener("touchcancel", () => { s = null; }, { passive: true });
+ el.addEventListener("touchend", (e) => {
+  if (!s) return;
+  const t = e.changedTouches[0], dx = t.clientX - s.x, dy = t.clientY - s.y, dt = Date.now() - s.at;
+  s = null;
+  if (window.visualViewport && window.visualViewport.scale > 1.05) return; // pinch-zoomed: let the finger pan instead
+  if (allowed && !allowed()) return;
+  if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy) * 1.4 && dt < 900) onSwipe(dx > 0 ? 1 : -1);
+ }, { passive: true });
+}
+addSwipe($("#comicstage"), (d) => { comicSwipedAt = Date.now(); turnComic(d); }, () => C && !$("#comicstage").classList.contains("scrollmode"));
+addEventListener("keydown", (e) => {
+ if ($("#comicreader").hidden || !C) return;
+ if (e.key === "ArrowRight") turnComic(1); else if (e.key === "ArrowLeft") turnComic(-1);
+});
 
 /* ---------------- audiobook player ---------------- */
 const audio = $("#audio");
