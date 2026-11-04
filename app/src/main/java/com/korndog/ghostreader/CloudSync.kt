@@ -86,6 +86,27 @@ internal object CloudSync {
             check(c)
             if (c.responseCode !in 200..299) throw IllegalStateException("Upload failed (" + c.responseCode + ")")
         }
+        fun putPart(key: String, file: File, offset: Long, length: Long) {
+            val c = open("/o/" + URLEncoder.encode(key, "UTF-8"), "PUT")
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/octet-stream")
+            c.setFixedLengthStreamingMode(length)
+            file.inputStream().use { i ->
+                var skipped = 0L
+                while (skipped < offset) { val n = i.skip(offset - skipped); if (n <= 0) break; skipped += n }
+                c.outputStream.use { o ->
+                    val buf = ByteArray(256 * 1024)
+                    var left = length
+                    while (left > 0) {
+                        val n = i.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                        if (n <= 0) throw java.io.IOException("File ended early")
+                        o.write(buf, 0, n); left -= n
+                    }
+                }
+            }
+            check(c)
+            if (c.responseCode !in 200..299) throw IllegalStateException("Upload failed (" + c.responseCode + ")")
+        }
         fun putFile(key: String, file: File) {
             val c = open("/o/" + URLEncoder.encode(key, "UTF-8"), "PUT")
             c.doOutput = true
@@ -169,5 +190,49 @@ internal object CloudSync {
         }
         prefs.edit().putLong("last", System.currentTimeMillis()).apply()
         return "Synced. $up sent, $down received" + (if (skipped > 0) ", $skipped too big to sync" else "") + (if (failed > 0) ", $failed hit a connection problem, tap Save & sync again" else "") + "."
+    }
+
+    private const val PART = 50L * 1024 * 1024
+
+    /**
+     * Sends one audiobook to the cloud in 50 MB pieces (the Worker only accepts ~100 MB per request).
+     * Pieces are stored as ordinary objects, so the Worker needs no changes. Safe to re-run: pieces
+     * already in the cloud are skipped, so a dropped connection just resumes.
+     */
+    fun sendAudiobook(context: Context, file: File, title: String, cover: android.graphics.Bitmap?, onStatus: (String) -> Unit): String {
+        val base = url(context)
+        val token = key(context)
+        require(base.startsWith("https://") && token.isNotBlank()) { "Set up the sync address and key first (Settings → Sync)" }
+        require(file.isFile && file.canRead()) { "Audiobook file is unavailable" }
+        val remote = Remote(base, token)
+        onStatus("Connecting…")
+        remote.ping()
+        val name = cleanName(file)
+        val hash = sha1("audio|" + name + "|" + file.length())
+        val total = file.length()
+        val parts = ((total + PART - 1) / PART).toInt().coerceAtLeast(1)
+        val existing = remote.list("f/").toHashSet()
+        var sent = 0
+        for (i in 0 until parts) {
+            val key = "f/" + sha1("$hash|part|$i")
+            if (key in existing) continue
+            val off = i * PART
+            val len = minOf(PART, total - off)
+            onStatus("Uploading part ${i + 1} of $parts (${(off * 100 / total.coerceAtLeast(1))}%)…")
+            retry(4) { remote.putPart(key, file, off, len) }
+            sent++
+        }
+        val meta = JSONObject()
+            .put("store", "audio").put("name", name).put("size", total)
+            .put("title", title).put("author", "").put("format", JSONObject.NULL)
+            .put("parts", parts).put("partSize", PART).put("manga", false).put("added", System.currentTimeMillis())
+        retry { remote.putBytes("m/$hash.json", meta.toString().toByteArray(), "application/json") }
+        if (cover != null) runCatching {
+            val bos = java.io.ByteArrayOutputStream()
+            cover.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, bos)
+            val data = "data:image/jpeg;base64," + android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+            remote.putBytes("c/$hash", data.toByteArray(), "text/plain")
+        }
+        return if (sent == 0) "Already in the cloud." else "Sent to the cloud ($parts parts)."
     }
 }

@@ -421,6 +421,9 @@ internal fun LibraryScreen(
     ) }
     var menuEntry by remember { mutableStateOf<ShelfEntry?>(null) }
     var exportSource by remember { mutableStateOf<File?>(null) }
+    var cloudMsg by remember { mutableStateOf<String?>(null) }
+    var cloudBusy by remember { mutableStateOf(false) }
+    val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
     var exportCover by remember { mutableStateOf<Bitmap?>(null) }
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
     val audioExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -552,6 +555,14 @@ internal fun LibraryScreen(
     val open: (ShelfEntry) -> Unit = { e -> e.book?.let(onOpenBook) ?: e.audio?.let(onOpenAudio) ?: e.pdf?.let(onOpenPdf) ?: e.comic?.let(onOpenComic) }
     val long: (ShelfEntry) -> Unit = { e -> menuEntry = e }
 
+    cloudMsg?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { if (!cloudBusy) cloudMsg = null },
+            title = { Text("Cloudflare") },
+            text = { Text(msg + if (cloudBusy) "\n\nKeep this screen open until it finishes." else "") },
+            confirmButton = { TextButton(onClick = { cloudMsg = null }, enabled = !cloudBusy) { Text("OK") } }
+        )
+    }
     menuEntry?.let { entry ->
         val position = orderedEntries.indexOfFirst { entryId(it) == entryId(entry) }
         AlertDialog(
@@ -578,6 +589,24 @@ internal fun LibraryScreen(
                             menuEntry = null
                             audioExport.launch(entry.title.replace(Regex("[^a-zA-Z0-9 .,'()!-]"), "").trim().ifBlank { "Audiobook" } + "." + entry.audio.extension.lowercase())
                         }) { Text("Export audiobook copy") }
+                        TextButton(onClick = {
+                            val file = entry.audio
+                            val title = entry.title
+                            val art = entry.cover
+                            menuEntry = null
+                            cloudBusy = true
+                            cloudMsg = "Starting…"
+                            val act = context as? android.app.Activity
+                            act?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            cloudScope.launch {
+                                val res = withContext(Dispatchers.IO) {
+                                    runCatching { CloudSync.sendAudiobook(context, file, title, art) { m -> cloudMsg = m } }
+                                }
+                                act?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                cloudBusy = false
+                                cloudMsg = res.getOrElse { "Didn't finish: " + (it.message ?: "connection problem") + ". Tap Send to Cloudflare again to resume." }
+                            }
+                        }) { Text("Send to Cloudflare") }
                         TextButton(onClick = {
                             val cover = entry.cover
                             if (cover == null) {
