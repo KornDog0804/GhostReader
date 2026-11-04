@@ -15,6 +15,7 @@ import java.security.MessageDigest
  */
 internal object CloudSync {
     private const val MAX_FILE = 95L * 1024 * 1024
+    private const val MAX_TOTAL = 2L * 1024 * 1024 * 1024
 
     fun url(context: Context) = context.getSharedPreferences("cloudsync", 0).getString("url", "") ?: ""
     fun key(context: Context) = context.getSharedPreferences("cloudsync", 0).getString("key", "") ?: ""
@@ -161,15 +162,30 @@ internal object CloudSync {
         for (item in local) {
             if (item.hash in remoteMeta) continue
             n++
-            if (item.file.length() > MAX_FILE) { skipped++; continue }
+            if (item.file.length() > MAX_TOTAL) { skipped++; continue }
+            val big = item.file.length() > MAX_FILE
             onStatus("Uploading $n: ${item.name}…")
-            try { retry { remote.putFile("f/" + item.hash, item.file) } } catch (e: IllegalStateException) { throw e } catch (e: Exception) { failed++; continue }
+            try {
+                if (big) {
+                    val existing = remote.list("f/").toHashSet()
+                    val total = item.file.length()
+                    val parts = ((total + PART - 1) / PART).toInt()
+                    for (i in 0 until parts) {
+                        val key = "f/" + sha1("${item.hash}|part|$i")
+                        if (key in existing) continue
+                        onStatus("Uploading $n: ${item.name} (part ${i + 1} of $parts)…")
+                        val off = i * PART
+                        retry(4) { remote.putPart(key, item.file, off, minOf(PART, total - off)) }
+                    }
+                } else retry { remote.putFile("f/" + item.hash, item.file) }
+            } catch (e: IllegalStateException) { throw e } catch (e: Exception) { failed++; continue }
             val meta = JSONObject()
                 .put("store", "books").put("name", item.name).put("size", item.file.length())
                 .put("title", item.name.substringBeforeLast('.').replace('_', ' '))
                 .put("author", "")
                 .put("format", item.format ?: JSONObject.NULL)
                 .put("manga", false).put("added", System.currentTimeMillis())
+            if (big) meta.put("parts", ((item.file.length() + PART - 1) / PART).toInt()).put("partSize", PART)
             try { retry { remote.putBytes("m/${item.hash}.json", meta.toString().toByteArray(), "application/json") } } catch (e: IllegalStateException) { throw e } catch (e: Exception) { failed++; continue }
             up++
         }
@@ -193,7 +209,18 @@ internal object CloudSync {
             val safe = name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
             val target = File(folder, "${System.currentTimeMillis()}_$safe")
             try {
-                retry { remote.getFile("f/$hash", target) }
+                val parts = meta.optInt("parts", 0)
+                if (parts > 0) {
+                    val tmp = File(folder, "${target.name}.part")
+                    target.delete()
+                    for (i in 0 until parts) {
+                        onStatus("Downloading $d of ${toGet.size}: $name (part ${i + 1} of $parts)…")
+                        retry(4) { remote.getFile("f/" + sha1("$hash|part|$i"), tmp) }
+                        tmp.inputStream().use { inp -> java.io.FileOutputStream(target, true).use { out -> inp.copyTo(out, 256 * 1024) } }
+                        tmp.delete()
+                    }
+                    if (target.length() != meta.optLong("size", -1L)) { target.delete(); failed++; continue }
+                } else retry { remote.getFile("f/$hash", target) }
                 if (target.length() <= 0L) { target.delete(); continue }
             } catch (e: IllegalStateException) { target.delete(); throw e } catch (e: Exception) { target.delete(); failed++; continue }
             fetched += hash
