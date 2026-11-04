@@ -33,6 +33,7 @@
     <div id="cloudaudio" class="cloudaudio" hidden></div>
     <button id="syncbtn" class="ver">Sync: not set up</button>
     <button id="ver" class="ver">Version …</button>
+    <button id="helpbtn" class="helplink">How the controls work <span aria-hidden="true">→</span></button>
     <div id="empty" class="empty" hidden>
       <div class="emptyart">👻</div>
       <h2>Your shelf is empty</h2>
@@ -92,6 +93,49 @@
     <div id="syncmsg" class="dim"></div>
     <div class="dlgbtns"><button id="syncsave" class="pill primary">Save &amp; sync</button><button id="syncoff" class="pill">Turn off</button><button id="syncclose" class="pill">Close</button></div>
     <p class="dim small"><a href="setup.html" target="_blank">How to set up the sync address</a></p>
+  </div>
+</div>
+<div id="helpdlg" class="overlay" hidden>
+  <div class="dlg help" role="dialog" aria-labelledby="helptitle">
+    <div class="helphead"><h3 id="helptitle">How GhostReader works</h3><button id="helpclose" class="icon" aria-label="Close">✕</button></div>
+    <p class="dim">Everything you read fills the screen. Tap the middle of any page to show or hide the controls.</p>
+
+    <section class="hsec">
+      <h4>Books</h4>
+      <dl>
+        <dt>Turn the page</dt><dd>Swipe right for forward, swipe left for back. Or tap the right or left edge.</dd>
+        <dt>Controls</dt><dd>Tap the middle. <b>☰</b> opens chapters, <b>Aa</b> changes theme, text size, font, spacing and margins, and the slider jumps anywhere.</dd>
+        <dt>Keyboard</dt><dd>Arrow keys turn pages if you use a keyboard.</dd>
+      </dl>
+    </section>
+
+    <section class="hsec">
+      <h4>Comics, manga and PDFs</h4>
+      <dl>
+        <dt>Turn the page</dt><dd>Swipe right for forward, swipe left for back. Manga reverses this automatically.</dd>
+        <dt>Manga mode</dt><dd>Tap <b>LTR</b> to switch to <b>RTL</b>. The title moves to the Manga tab and remembers it.</dd>
+        <dt>Zoom</dt><dd>Pinch to zoom, then drag to look around. Zoom back out to swipe again.</dd>
+        <dt>Page / Scroll</dt><dd>Switch between one page at a time and a continuous scroll.</dd>
+      </dl>
+    </section>
+
+    <section class="hsec">
+      <h4>Audiobooks</h4>
+      <dl>
+        <dt>Player</dt><dd>Play or pause, jump 30 seconds either way, and tap the speed button to cycle 0.8× to 2×. It remembers where you stopped.</dd>
+        <dt>From your phone</dt><dd>In the phone app, press and hold an audiobook and choose <b>Send to Cloudflare</b>. Then open the <b>Audio</b> tab here, tap <b>Audiobooks in the cloud</b> and download it.</dd>
+      </dl>
+    </section>
+
+    <section class="hsec">
+      <h4>Your library</h4>
+      <dl>
+        <dt>⋮ menu</dt><dd>On any cover: find or choose a cover, send an audiobook to the cloud, or remove it from this device.</dd>
+        <dt>Sync</dt><dd>Books, comics, covers and reading progress stay the same on every device. Tap the Sync line to set it up.</dd>
+        <dt>Updates</dt><dd>Tap the version line to load the newest version. Your library is kept.</dd>
+      </dl>
+    </section>
+    <div class="dlgbtns"><button id="helpdone" class="pill primary">Got it</button></div>
   </div>
 </div>
 <input id="file" type="file" multiple accept=".epub,.pdf,.cbz,.zip" hidden>

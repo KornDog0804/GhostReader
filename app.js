@@ -625,3 +625,12 @@ setTimeout(() => runSync(false), 1500);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) runSync(false); });
 $("#rback").addEventListener("click", () => setTimeout(() => runSync(false), 800));
 $("#pback").addEventListener("click", () => setTimeout(() => runSync(false), 800));
+
+/* ---------------- help ---------------- */
+{
+  const dlg = $("#helpdlg"), open = () => { dlg.hidden = false; dlg.querySelector(".dlg").scrollTop = 0; }, close = () => { dlg.hidden = true; };
+  $("#helpbtn").addEventListener("click", open);
+  $("#helpclose").addEventListener("click", close);
+  $("#helpdone").addEventListener("click", close);
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
+}

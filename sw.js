@@ -1,5 +1,5 @@
 // Version is bumped on every deploy; the page shows it at the bottom of the library.
-const VERSION = "20261104-0600";
+const VERSION = "20261104-0700";
 const CACHE = "ghostreader-" + VERSION;
 const SHELL = ["./", "index.html", "style.css", "app.js", "page-engine.js", "zip.js", "epub.js", "db.js", "covers.js", "sync.js", "pdfview.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 self.addEventListener("install", (e) => {
