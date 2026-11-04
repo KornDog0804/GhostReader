@@ -367,10 +367,12 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
         CloudSync.save(ctx, syncUrl, syncKey)
         syncBusy = true
         syncStatus = "Connecting…"
+        (ctx as? android.app.Activity)?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         syncWorker.execute {
          val result = runCatching { CloudSync.syncNow(ctx.applicationContext) { status -> uiHandler.post { syncStatus = status } } }
          uiHandler.post {
           syncBusy = false
+          (ctx as? android.app.Activity)?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
           books = scanBooks(shelf)
           pdfFiles = scanPdfs(File(ctx.filesDir, "pdfs").apply { mkdirs() })
           comics = scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })

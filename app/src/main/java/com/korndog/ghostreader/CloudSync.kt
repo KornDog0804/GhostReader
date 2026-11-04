@@ -97,6 +97,17 @@ internal object CloudSync {
         }
     }
 
+    private fun <T> retry(times: Int = 3, block: () -> T): T {
+        var last: Exception? = null
+        repeat(times) { attempt ->
+            try { return block() } catch (e: IllegalStateException) { throw e } catch (e: Exception) {
+                last = e
+                Thread.sleep(1500L * (attempt + 1))
+            }
+        }
+        throw last ?: IllegalStateException("Sync failed")
+    }
+
     /** One full sync. Blocking: call from a background thread. Returns a one-line summary. */
     fun syncNow(context: Context, onStatus: (String) -> Unit): String {
         val base = url(context)
@@ -112,21 +123,21 @@ internal object CloudSync {
         val have = local.map { it.hash }.toMutableSet().also { it.addAll(fetched) }
         val remoteMeta = remote.list("m/").map { it.removePrefix("m/").removeSuffix(".json") }.toSet()
 
-        var up = 0; var down = 0; var skipped = 0
+        var up = 0; var down = 0; var skipped = 0; var failed = 0
         var n = 0
         for (item in local) {
             if (item.hash in remoteMeta) continue
             n++
             if (item.file.length() > MAX_FILE) { skipped++; continue }
             onStatus("Uploading $n: ${item.name}…")
-            remote.putFile("f/" + item.hash, item.file)
+            try { retry { remote.putFile("f/" + item.hash, item.file) } } catch (e: IllegalStateException) { throw e } catch (e: Exception) { failed++; continue }
             val meta = JSONObject()
                 .put("store", "books").put("name", item.name).put("size", item.file.length())
                 .put("title", item.name.substringBeforeLast('.').replace('_', ' '))
                 .put("author", "")
                 .put("format", item.format ?: JSONObject.NULL)
                 .put("manga", false).put("added", System.currentTimeMillis())
-            remote.putBytes("m/${item.hash}.json", meta.toString().toByteArray(), "application/json")
+            try { retry { remote.putBytes("m/${item.hash}.json", meta.toString().toByteArray(), "application/json") } } catch (e: IllegalStateException) { throw e } catch (e: Exception) { failed++; continue }
             up++
         }
 
@@ -149,14 +160,14 @@ internal object CloudSync {
             val safe = name.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
             val target = File(folder, "${System.currentTimeMillis()}_$safe")
             try {
-                remote.getFile("f/$hash", target)
+                retry { remote.getFile("f/$hash", target) }
                 if (target.length() <= 0L) { target.delete(); continue }
-            } catch (e: Exception) { target.delete(); throw e }
+            } catch (e: IllegalStateException) { target.delete(); throw e } catch (e: Exception) { target.delete(); failed++; continue }
             fetched += hash
             prefs.edit().putStringSet("fetched", fetched).apply()
             down++
         }
         prefs.edit().putLong("last", System.currentTimeMillis()).apply()
-        return "Synced. $up sent, $down received" + (if (skipped > 0) ", $skipped too big to sync" else "") + "."
+        return "Synced. $up sent, $down received" + (if (skipped > 0) ", $skipped too big to sync" else "") + (if (failed > 0) ", $failed hit a connection problem, tap Save & sync again" else "") + "."
     }
 }
