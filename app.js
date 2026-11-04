@@ -110,7 +110,7 @@ function renderCloudAudio() {
     try {
       const rows = await listCloudAudio();
       if (!rows.length) { list.textContent = "Nothing in the cloud yet. On the phone app, long-press an audiobook and tap Send to Cloudflare."; return; }
-      list.innerHTML = rows.map((r) => `<div class="crow"><div><b>${esc(r.meta.title || r.meta.name)}</b><br><small>${Math.round(r.meta.size / 1048576)} MB</small></div>${r.here ? '<span class="dim">On this device</span>' : `<button class="pill primary" data-h="${r.hash}">Download</button>`}</div>`).join("");
+      list.innerHTML = rows.map((r) => `<div class="crow">${r.cover ? `<img class="cthumb" src="${r.cover}" alt="">` : '<div class="cthumb none">no art</div>'}<div style="flex:1"><b>${esc(r.meta.title || r.meta.name)}</b><br><small>${Math.round(r.meta.size / 1048576)} MB</small></div>${r.here ? '<span class="dim">On this device</span>' : `<button class="pill primary" data-h="${r.hash}">Download</button>`}</div>`).join("");
       list.onclick = async (e) => {
         const b = e.target.closest("button[data-h]"); if (!b || cloudBusy) return;
         const row = rows.find((x) => x.hash === b.dataset.h);

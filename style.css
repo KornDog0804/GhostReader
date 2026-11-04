@@ -102,3 +102,5 @@ h3.sec{margin:18px 0 10px;font-size:13px;letter-spacing:.14em;color:var(--dim);t
 .cloudaudio{padding:8px 16px 0;max-width:720px;margin:0 auto}
 .cloudaudio .crow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #ffffff14}
 .cloudaudio small,.cloudaudio .dim{color:var(--dim)}
+
+.cthumb{width:56px;height:56px;border-radius:8px;object-fit:cover;flex:none;background:#ffffff14;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--dim)}

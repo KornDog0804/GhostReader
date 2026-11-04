@@ -123,7 +123,7 @@ export async function listCloudAudio() {
   const out = [];
   await Promise.all(hashes.map(async (h) => {
     const m = await R.getJson(`m/${h}.json`).catch(() => null);
-    if (m && m.store === "audio" && m.parts) out.push({ hash: h, meta: m, here: mine.has(h) });
+    if (m && m.store === "audio" && m.parts) out.push({ hash: h, meta: m, here: mine.has(h), cover: await R.getText("c/" + h).catch(() => null) });
   }));
   return out.sort((a, b) => (a.meta.title || "").localeCompare(b.meta.title || ""));
 }
