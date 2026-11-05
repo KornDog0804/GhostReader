@@ -34,15 +34,25 @@ internal fun savedImageFolders(context:Context):List<ImageFolderBook> {
  return prefs.all.keys.sorted().mapNotNull { key ->
   val title=prefs.getString(key,null) ?: return@mapNotNull null
   val uri=Uri.parse(key)
-  if(context.contentResolver.persistedUriPermissions.none { it.uri==uri && it.isReadPermission }) null
+  if(context.contentResolver.persistedUriPermissions.none { it.isReadPermission && (it.uri==uri || uri.toString().startsWith(it.uri.toString().substringBeforeLast("%2F") + "%2F")) }) null
   else ImageFolderBook(uri,title)
  }
 }
 internal fun addImageFolder(context:Context,uri:Uri) {
- val pages=folderPages(context,uri)
- require(pages.isNotEmpty()) { "Choose a folder containing numbered JPG, PNG or WebP pages" }
- val title=DocumentFile.fromTreeUri(context,uri)?.name ?: "Image Book"
- context.getSharedPreferences("image_folder_books",0).edit().putString(uri.toString(),title).apply()
+ val root=DocumentFile.fromTreeUri(context,uri) ?: error("Cannot open folder")
+ val children=root.listFiles()
+ val subfolders=children.filter { it.isDirectory && it.listFiles().any { page -> page.isFile && page.name?.substringAfterLast('.', "")?.lowercase() in imageTypes } }
+ val targets=if(subfolders.isNotEmpty()) subfolders else listOf(root)
+ val edit=context.getSharedPreferences("image_folder_books",0).edit()
+ var added=0
+ targets.forEach { folder ->
+  if(folder.listFiles().any { it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in imageTypes }) {
+   edit.putString(folder.uri.toString(),folder.name ?: "Image Book")
+   added++
+  }
+ }
+ require(added>0) { "No image book folders found" }
+ edit.apply()
 }
 internal fun removeImageFolder(context:Context,uri:Uri) {
  context.getSharedPreferences("image_folder_books",0).edit().remove(uri.toString()).apply()

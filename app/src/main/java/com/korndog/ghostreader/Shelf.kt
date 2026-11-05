@@ -532,7 +532,9 @@ internal fun LibraryScreen(
         }
     }
 
+    var mediaFilter by remember { mutableStateOf("All") }
     val entries = loaded.orEmpty().filter {
+        (mediaFilter=="All" || (mediaFilter=="Read" && (it.book!=null || it.pdf!=null)) || (mediaFilter=="Audio" && it.audio!=null) || (mediaFilter=="Comics" && it.comic!=null)) &&
         query.isBlank() || it.title.contains(query, true) || it.author.contains(query, true)
     }
     val orderedEntries = remember(entries, manualOrder) {
@@ -651,6 +653,9 @@ internal fun LibraryScreen(
                 placeholder = { Text("Search titles and authors") },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
             )
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.SpaceEvenly) {
+            listOf("All","Read","Audio","Comics").forEach { kind -> FilterChip(selected=mediaFilter==kind,onClick={mediaFilter=kind},label={Text(kind)}) }
         }
         TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = accent) {
             listOf("Books", "Authors", "Series").forEachIndexed { index, label ->

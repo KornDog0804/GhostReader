@@ -88,6 +88,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var selectedComic by remember { mutableStateOf<File?>(null) }
  var selectedImageFolder by remember { mutableStateOf<ImageFolderBook?>(null) }
  var imageFolders by remember { mutableStateOf(savedImageFolders(ctx)) }
+ var librarySection by remember { mutableIntStateOf(0) }
  var selectedPdf by remember { mutableStateOf<File?>(null) }
  var pdfFiles by remember { mutableStateOf(scanPdfs(File(ctx.filesDir,"pdfs").apply { mkdirs() })) }
  var comics by remember { mutableStateOf(scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })) }
@@ -248,6 +249,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
    addImageFolder(ctx,uri)
    imageFolders=savedImageFolders(ctx)
+   librarySection=1
   } catch(e:Exception) { error=e.message ?: "Could not add image folder" }
  }
  val comicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -311,9 +313,13 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     BackHandler { showHome = true }
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
-      0 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-       ImageFolderShelf(imageFolders,onOpen={selectedImageFolder=it},onRemove={ removeImageFolder(ctx,it.uri);imageFolders=savedImageFolders(ctx) })
-       Box(Modifier.fillMaxWidth().height(700.dp)) { LibraryScreen(
+      0 -> Column(Modifier.fillMaxSize()) {
+       Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+        FilterChip(selected=librarySection==0,onClick={librarySection=0},label={Text("My Library")})
+        FilterChip(selected=librarySection==1,onClick={librarySection=1},label={Text("Image Books (${imageFolders.size})")})
+       }
+       if(librarySection==1) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ImageFolderShelf(imageFolders,onOpen={selectedImageFolder=it},onRemove={ removeImageFolder(ctx,it.uri);imageFolders=savedImageFolders(ctx) })
+       } else Box(Modifier.weight(1f)) { LibraryScreen(
        books = books, audio = audioFiles, pdfs = pdfFiles, comics = comics,
        onOpenComic = { selectedComic = it },
        onDeleteComic = { file -> if(file.delete()) comics=scanComics(File(ctx.filesDir,"comics")) else error="Could not delete comic" },
@@ -334,8 +340,11 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { comicPicker.launch(arrayOf("application/zip","application/octet-stream","*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import CBZ comic") }
        Spacer(Modifier.height(8.dp))
-       OutlinedButton(onClick={imageFolderPicker.launch(null)},modifier=Modifier.fillMaxWidth()) { Text("＋ Add image folder as book (no copying)") }
+       OutlinedButton(onClick={imageFolderPicker.launch(null)},modifier=Modifier.fillMaxWidth()) { Text("＋ Add image book or series folder") }
        Spacer(Modifier.height(8.dp))
+       Text("Library card: borrow through Libby or hoopla",style=MaterialTheme.typography.bodySmall)
+       OutlinedButton(onClick={ctx.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://libbyapp.com")))}) { Text("Open Libby") }
+       OutlinedButton(onClick={ctx.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://www.hoopladigital.com")))}) { Text("Open hoopla music and comics") }
        OutlinedButton(onClick = { showMagnet = !showMagnet }, modifier = Modifier.fillMaxWidth()) { Text("Download from magnet") }
        if (showMagnet) {
         Spacer(Modifier.height(8.dp))
