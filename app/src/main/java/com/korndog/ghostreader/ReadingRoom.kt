@@ -9,6 +9,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -71,12 +76,15 @@ internal fun ReadingRoom(
   }
   if (staged != null) {
    val chosen = staged!!
-   val scale by animateFloatAsState(1f, label = "bookToDesk")
+   var landed by remember(chosen.title) { mutableStateOf(false) }
+   LaunchedEffect(chosen.title) { landed = true }
+   val scale by animateFloatAsState(if (landed) 1f else 0.52f, animationSpec = tween(520), label = "bookToDesk")
+   val rise by animateDpAsState(if (landed) 0.dp else (-90).dp, animationSpec = tween(520), label = "shelfToDesk")
    Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
     Text(if(chosen.kind=="Audio") "♫  THE JUKEBOX" else "▤  THE READING DESK", color=plum, fontSize=18.sp, fontWeight=FontWeight.Bold)
     Spacer(Modifier.height(28.dp))
     Box(Modifier.fillMaxWidth().height(260.dp).background(Brush.verticalGradient(listOf(Color(0xFF4B3024),Color(0xFF1B1219))),RoundedCornerShape(20.dp)), contentAlignment=Alignment.Center) {
-     Column(horizontalAlignment=Alignment.CenterHorizontally, modifier=Modifier.graphicsLayer(scaleX=scale,scaleY=scale)) {
+     Column(horizontalAlignment=Alignment.CenterHorizontally, modifier=Modifier.offset(y=rise).graphicsLayer(scaleX=scale,scaleY=scale)) {
       Text(if(chosen.kind=="Audio") "♫" else if(chosen.kind=="Comics" || chosen.kind=="Image") "▣" else "▤", color=lime,fontSize=70.sp)
       Text(chosen.title,color=Color.White,fontWeight=FontWeight.Bold,fontSize=19.sp,maxLines=3,overflow=TextOverflow.Ellipsis)
      }
@@ -100,35 +108,54 @@ internal fun ReadingRoom(
      Text(if(roomMode=="Jukebox") "CHOOSE AN AUDIOBOOK" else if(roomMode=="Desk") "CHOOSE A BOOK" else "YOUR SHELVES", color = Color(0xFFE9C99E), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
      Spacer(Modifier.height(8.dp))
     }
-    items(grouped.entries.toList()) { entry ->
-     Row(
-      Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(wood,Color(0xFF211827))), RoundedCornerShape(12.dp))
-       .clickable { if(entry.value.size==1) staged=entry.value.first() else selectedSeries = entry.key }.padding(16.dp),
-      verticalAlignment = Alignment.CenterVertically
-     ) {
-      Box(Modifier.width(55.dp).height(78.dp).background(if(entry.value.first().kind=="Audio") Color(0xFF482B67) else Color(0xFF5A382A), RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
-       Text(if(entry.value.first().kind=="Audio") "♫" else "▤", color = lime, fontSize = 27.sp)
+    items(grouped.entries.toList().chunked(3)) { rowEntries ->
+     Column(Modifier.fillMaxWidth()) {
+      Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
+       rowEntries.forEach { entry ->
+        Column(Modifier.weight(1f).clickable {
+         if (entry.value.size == 1) staged = entry.value.first() else selectedSeries = entry.key
+        }, horizontalAlignment = Alignment.CenterHorizontally) {
+         Box(
+          Modifier.fillMaxWidth().height(142.dp)
+           .shadow(5.dp, RoundedCornerShape(topStart = 5.dp, topEnd = 8.dp))
+           .background(Brush.verticalGradient(listOf(Color(0xFF594030),Color(0xFF241727))), RoundedCornerShape(5.dp))
+           .padding(7.dp),
+          contentAlignment = Alignment.Center
+         ) {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+           Text(if(entry.value.first().kind=="Audio") "♫" else if(entry.value.first().kind=="Comics") "▣" else "▤", color=lime,fontSize=26.sp)
+           Spacer(Modifier.height(7.dp))
+           Text(entry.key,color=Color.White,fontWeight=FontWeight.Bold,fontSize=11.sp,maxLines=4,overflow=TextOverflow.Ellipsis)
+          }
+         }
+         Spacer(Modifier.height(7.dp))
+         Text(if(entry.value.size>1) "${entry.value.size} volumes" else "Tap to open",color=plum,fontSize=10.sp,maxLines=1)
+        }
+       }
+       repeat(3-rowEntries.size) { Spacer(Modifier.weight(1f)) }
       }
-      Spacer(Modifier.width(14.dp))
-      Column(Modifier.weight(1f)) {
-       Text(entry.key, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-       Text("${entry.value.size} ${if(entry.value.size==1) "title" else "titles"} • ${entry.value.map { it.kind }.distinct().joinToString()}", color = Color.LightGray, fontSize = 12.sp)
-      }
-      Text("›", color = plum, fontSize = 30.sp)
+      Spacer(Modifier.height(4.dp))
+      Box(Modifier.fillMaxWidth().height(15.dp).background(Brush.verticalGradient(listOf(Color(0xFF80583A),Color(0xFF29170F))),RoundedCornerShape(3.dp)))
      }
     }
    } else {
     val chosen = grouped[selectedSeries].orEmpty()
     item { Text(selectedSeries.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp) }
-    items(chosen) { entry ->
-     Row(Modifier.fillMaxWidth().background(Color(0xFF211827), RoundedCornerShape(12.dp)).clickable { staged=entry }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-      Text(if(entry.kind=="Audio") "♫" else "▤", color = lime, fontSize = 25.sp)
-      Spacer(Modifier.width(16.dp))
-      Column(Modifier.weight(1f)) {
-       Text(entry.title, color = Color.White, fontWeight = FontWeight.SemiBold)
-       Text(if(entry.kind=="Audio") "Play / Resume" else "Read / Resume", color = plum, fontSize = 12.sp)
+    items(chosen.chunked(3)) { rowEntries ->
+     Column {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+       rowEntries.forEach { entry ->
+        Box(Modifier.weight(1f).height(154.dp).background(Color(0xFF39263A),RoundedCornerShape(7.dp)).clickable { staged=entry }.padding(9.dp),contentAlignment=Alignment.Center) {
+         Column(horizontalAlignment=Alignment.CenterHorizontally) {
+          Text(if(entry.kind=="Audio") "♫" else "▤",color=lime,fontSize=28.sp)
+          Text(entry.title,color=Color.White,fontSize=11.sp,maxLines=4,overflow=TextOverflow.Ellipsis)
+         }
+        }
+       }
+       repeat(3-rowEntries.size) { Spacer(Modifier.weight(1f)) }
       }
-      Text("›", color = Color.White, fontSize = 24.sp)
+      Spacer(Modifier.height(5.dp))
+      Box(Modifier.fillMaxWidth().height(12.dp).background(Color(0xFF70462F)))
      }
     }
    }
