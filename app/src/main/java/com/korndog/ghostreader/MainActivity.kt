@@ -86,6 +86,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var selected by remember { mutableStateOf<Book?>(null) }
  var selectedAudio by remember { mutableStateOf<File?>(null) }
  var selectedComic by remember { mutableStateOf<File?>(null) }
+ var selectedImageFolder by remember { mutableStateOf<ImageFolderBook?>(null) }
+ var imageFolders by remember { mutableStateOf(savedImageFolders(ctx)) }
  var selectedPdf by remember { mutableStateOf<File?>(null) }
  var pdfFiles by remember { mutableStateOf(scanPdfs(File(ctx.filesDir,"pdfs").apply { mkdirs() })) }
  var comics by remember { mutableStateOf(scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })) }
@@ -241,6 +243,13 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    } catch(e:Exception) { target.delete(); throw e }
   } catch(e:Exception) { error=e.message?:"Could not import PDF" }
  }
+ val imageFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+  if(uri!=null) try {
+   ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+   addImageFolder(ctx,uri)
+   imageFolders=savedImageFolders(ctx)
+  } catch(e:Exception) { error=e.message ?: "Could not add image folder" }
+ }
  val comicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
   if(uri != null) try {
    val name=ctx.contentResolver.query(uri,null,null,null,null)?.use { c -> val i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if(c.moveToFirst()&&i>=0)c.getString(i) else null } ?: "comic.cbz"
@@ -283,7 +292,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  if(selectedPdf != null) {
+  if(selectedImageFolder != null) {
+   ImageFolderReader(selectedImageFolder!!,onClose={selectedImageFolder=null})
+  } else if(selectedPdf != null) {
    key(selectedPdf!!.absolutePath) { PdfReader(selectedPdf!!,onClose={selectedPdf=null}) }
   } else Column(if (selectedAudio == null) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
    if (selectedPdf != null) {
@@ -300,7 +311,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     BackHandler { showHome = true }
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
-      0 -> LibraryScreen(
+      0 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+       ImageFolderShelf(imageFolders,onOpen={selectedImageFolder=it},onRemove={ removeImageFolder(ctx,it.uri);imageFolders=savedImageFolders(ctx) })
+       Box(Modifier.fillMaxWidth().height(700.dp)) { LibraryScreen(
        books = books, audio = audioFiles, pdfs = pdfFiles, comics = comics,
        onOpenComic = { selectedComic = it },
        onDeleteComic = { file -> if(file.delete()) comics=scanComics(File(ctx.filesDir,"comics")) else error="Could not delete comic" },
@@ -308,7 +321,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it },
        onOpenPdf = { selectedPdf = it },
        onDeletePdf = { file -> if(file.delete()) pdfFiles=scanPdfs(File(ctx.filesDir,"pdfs")) else error="Could not delete PDF" }
-      )
+      ) } }
       1 -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Text("Add books and audiobooks you own.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
@@ -320,6 +333,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        OutlinedButton(onClick = { pdfPicker.launch(arrayOf("application/pdf","*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import PDF") }
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { comicPicker.launch(arrayOf("application/zip","application/octet-stream","*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("＋ Import CBZ comic") }
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(onClick={imageFolderPicker.launch(null)},modifier=Modifier.fillMaxWidth()) { Text("＋ Add image folder as book (no copying)") }
        Spacer(Modifier.height(8.dp))
        OutlinedButton(onClick = { showMagnet = !showMagnet }, modifier = Modifier.fillMaxWidth()) { Text("Download from magnet") }
        if (showMagnet) {
