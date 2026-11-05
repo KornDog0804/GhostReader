@@ -6,6 +6,9 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -75,17 +78,20 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
  var index by remember(key) { mutableIntStateOf(prefs.getInt(key,0)) }
  var bitmap by remember(key) { mutableStateOf<Bitmap?>(null) }
  var error by remember(key) { mutableStateOf<String?>(null) }
+ var loading by remember(key) { mutableStateOf(true) }
  LaunchedEffect(key) {
   try { pages=withContext(Dispatchers.IO) { folderPages(context,book.uri) };index=index.coerceIn(0,(pages.size-1).coerceAtLeast(0)) }
   catch(e:Exception) { error=e.message ?: "Cannot read folder" }
  }
  LaunchedEffect(key,index,pages) {
   if(pages.isNotEmpty()) try {
+   loading=true
    bitmap=null
    bitmap=withContext(Dispatchers.IO) { decodePage(context,pages[index].uri) }
    if(bitmap==null) error="Could not read page"
    else { error=null;prefs.edit().putInt(key,index).apply() }
-  } catch(e:Exception) { error=e.message ?: "Could not load page" }
+   loading=false
+  } catch(e:Exception) { error=e.message ?: "Could not load page";loading=false }
  }
  BackHandler { onClose() }
  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -102,7 +108,8 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
    },onHorizontalDrag={change,amount->change.consume();drag+=amount})
   }) {
    bitmap?.let { Image(it.asImageBitmap(),contentDescription="Page ${index+1}",modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Fit) }
-   error?.let { Text(it) }
+   if(loading) CircularProgressIndicator(modifier=Modifier.align(Alignment.Center))
+   error?.let { Text(it,color=Color.Red,modifier=Modifier.align(Alignment.Center).padding(16.dp)) }
   }
   Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
    OutlinedButton(onClick={index--},enabled=index>0) { Text("← Previous") }
@@ -113,25 +120,39 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
 @Composable
 internal fun ImageFolderShelf(books:List<ImageFolderBook>,onOpen:(ImageFolderBook)->Unit,onRemove:(ImageFolderBook)->Unit) {
  val ctx=LocalContext.current
- if(books.isEmpty()) return
- Text("Image Books",style=MaterialTheme.typography.titleMedium,modifier=Modifier.padding(horizontal=16.dp,vertical=8.dp))
- books.forEach { book ->
-  var cover by remember(book.uri) { mutableStateOf<Bitmap?>(null) }
-  var count by remember(book.uri) { mutableIntStateOf(0) }
-  LaunchedEffect(book.uri) {
-   val pages=withContext(Dispatchers.IO) { folderPages(ctx,book.uri) }
-   count=pages.size
-   cover=pages.firstOrNull()?.let { withContext(Dispatchers.IO) { decodePage(ctx,it.uri) } }
-  }
-  Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-   cover?.let { Image(it.asImageBitmap(),null,modifier=Modifier.size(width=65.dp,height=90.dp),contentScale=ContentScale.Fit) }
+ var expanded by remember { mutableStateOf(false) }
+ val series=books.filter { it.title.matches(Regex("^[0-9]{2} - .*")) }
+ val others=books.filterNot { it in series }
+ if(series.isNotEmpty()) {
+  Row(Modifier.fillMaxWidth().clickable { expanded=!expanded }.padding(20.dp),verticalAlignment=Alignment.CenterVertically) {
    Column(Modifier.weight(1f)) {
-    Text(book.title,style=MaterialTheme.typography.titleSmall)
-    val progress=ctx.getSharedPreferences("image_folder_progress",0).getInt(book.uri.toString(),0)
-    Text("$count pages · Page ${if(count==0) 0 else progress.coerceIn(0,count-1)+1}")
-    TextButton(onClick={onOpen(book)}) { Text("Read book") }
+    Text("Dog Man",style=MaterialTheme.typography.titleLarge)
+    Text("${series.size} books · ${if(expanded) "Hide books" else "Browse series"}")
    }
-   TextButton(onClick={onRemove(book)}) { Text("Remove") }
+   Text(if(expanded) "▲" else "▼")
   }
+  if(expanded) series.sortedBy { naturalKey(it.title) }.forEach { ImageFolderBookRow(it,onOpen,onRemove) }
+ }
+ others.forEach { ImageFolderBookRow(it,onOpen,onRemove) }
+}
+@Composable
+private fun ImageFolderBookRow(book:ImageFolderBook,onOpen:(ImageFolderBook)->Unit,onRemove:(ImageFolderBook)->Unit) {
+ val ctx=LocalContext.current
+ var cover by remember(book.uri) { mutableStateOf<Bitmap?>(null) }
+ var count by remember(book.uri) { mutableIntStateOf(0) }
+ LaunchedEffect(book.uri) {
+  val pages=withContext(Dispatchers.IO) { folderPages(ctx,book.uri) }
+  count=pages.size
+  cover=pages.firstOrNull()?.let { withContext(Dispatchers.IO) { decodePage(ctx,it.uri) } }
+ }
+ Row(Modifier.fillMaxWidth().clickable { onOpen(book) }.padding(horizontal=16.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+  cover?.let { Image(it.asImageBitmap(),null,modifier=Modifier.size(width=65.dp,height=90.dp),contentScale=ContentScale.Fit) }
+  Column(Modifier.weight(1f)) {
+   Text(book.title,style=MaterialTheme.typography.titleMedium)
+   val progress=ctx.getSharedPreferences("image_folder_progress",0).getInt(book.uri.toString(),0)
+   Text("$count pages · Page ${if(count==0) 0 else progress.coerceIn(0,count-1)+1}")
+   Text("Read book",color=MaterialTheme.colorScheme.primary)
+  }
+  TextButton(onClick={onRemove(book)}) { Text("Remove") }
  }
 }
