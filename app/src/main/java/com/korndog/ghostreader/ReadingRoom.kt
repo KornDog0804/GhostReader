@@ -38,11 +38,11 @@ internal fun ReadingRoom(
  onClassic: () -> Unit, onBook: (Book) -> Unit, onAudio: (File) -> Unit,
  onPdf: (File) -> Unit, onComic: (File) -> Unit, onImage: (ImageFolderBook) -> Unit
 ) {
- BackHandler { if (staged != null) staged = null else if (selectedSeries != null) selectedSeries = null else onClassic() }
  var selectedSeries by remember { mutableStateOf<String?>(null) }
  var selectedKind by remember { mutableStateOf("All") }
  var roomMode by remember { mutableStateOf("Shelves") }
  var staged by remember { mutableStateOf<RoomItem?>(null) }
+ BackHandler { if (staged != null) staged = null else if (selectedSeries != null) selectedSeries = null else onClassic() }
  val items = remember(books, audio, pdfs, comics, imageBooks) {
   buildList {
    books.forEach { book -> add(RoomItem(book.title, "Read", seriesOf(book.title)) { onBook(book) }) }
