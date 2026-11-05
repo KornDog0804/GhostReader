@@ -405,6 +405,9 @@ internal fun LibraryScreen(
     audio: List<File>,
     pdfs: List<File>,
     comics: List<File>,
+    imageBooks: List<ImageFolderBook>,
+    onOpenImageBook: (ImageFolderBook) -> Unit,
+    onRemoveImageBook: (ImageFolderBook) -> Unit,
     onOpenComic: (File) -> Unit,
     onDeleteComic: (File) -> Unit,
     onOpenPdf: (File) -> Unit,
@@ -538,7 +541,7 @@ internal fun LibraryScreen(
     var mediaFilter by remember { mutableStateOf("All") }
     val entries = loaded.orEmpty().filter {
         (mediaFilter=="All" || (mediaFilter=="Read" && (it.book!=null || it.pdf!=null)) || (mediaFilter=="Audio" && it.audio!=null) || (mediaFilter=="Comics" && it.comic!=null)) &&
-        query.isBlank() || it.title.contains(query, true) || it.author.contains(query, true)
+        (query.isBlank() || it.title.contains(query, true) || it.author.contains(query, true))
     }
     val orderedEntries = remember(entries, manualOrder) {
         val byId = entries.associateBy(::entryId)
@@ -657,16 +660,19 @@ internal fun LibraryScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
             )
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.SpaceEvenly) {
-            listOf("All","Read","Audio","Comics").forEach { kind -> FilterChip(selected=mediaFilter==kind,onClick={mediaFilter=kind},label={Text(kind)}) }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            listOf("All","Read","Audio","Comics","Image Books").forEach { kind -> FilterChip(selected=mediaFilter==kind,onClick={mediaFilter=kind},label={Text(kind)}) }
         }
-        TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = accent) {
+        if(mediaFilter!="Image Books") TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = accent) {
             listOf("Books", "Authors", "Series").forEachIndexed { index, label ->
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label, fontWeight = FontWeight.SemiBold) })
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
+                mediaFilter=="Image Books" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    ImageFolderShelf(imageBooks.filter { query.isBlank() || it.title.contains(query,true) },onOpenImageBook,onRemoveImageBook)
+                }
                 loaded == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accent) }
                 tab == 0 -> if (entries.isEmpty()) {
                     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {

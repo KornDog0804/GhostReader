@@ -313,21 +313,18 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     BackHandler { showHome = true }
     Box(Modifier.weight(1f).fillMaxWidth()) {
      when (tab) {
-      0 -> Column(Modifier.fillMaxSize()) {
-       Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
-        FilterChip(selected=librarySection==0,onClick={librarySection=0},label={Text("My Library")})
-        FilterChip(selected=librarySection==1,onClick={librarySection=1},label={Text("Image Books (${imageFolders.size})")})
-       }
-       if(librarySection==1) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ImageFolderShelf(imageFolders,onOpen={selectedImageFolder=it},onRemove={ removeImageFolder(ctx,it.uri);imageFolders=savedImageFolders(ctx) })
-       } else Box(Modifier.weight(1f)) { LibraryScreen(
+      0 -> Box(Modifier.fillMaxSize()) { LibraryScreen(
        books = books, audio = audioFiles, pdfs = pdfFiles, comics = comics,
+       imageBooks = imageFolders,
+       onOpenImageBook = { selectedImageFolder=it },
+       onRemoveImageBook = { removeImageFolder(ctx,it.uri);imageFolders=savedImageFolders(ctx) },
        onOpenComic = { selectedComic = it },
        onDeleteComic = { file -> if(file.delete()) comics=scanComics(File(ctx.filesDir,"comics")) else error="Could not delete comic" },
        onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
        onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it },
        onOpenPdf = { selectedPdf = it },
        onDeletePdf = { file -> if(file.delete()) pdfFiles=scanPdfs(File(ctx.filesDir,"pdfs")) else error="Could not delete PDF" }
-      ) } }
+      ) }
       1 -> Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
        Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
        Text("Add books and audiobooks you own.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)

@@ -46,6 +46,7 @@ internal fun addImageFolder(context:Context,uri:Uri) {
  val children=root.listFiles()
  val subfolders=children.filter { it.isDirectory && it.listFiles().any { page -> page.isFile && page.name?.substringAfterLast('.', "")?.lowercase() in imageTypes } }
  val targets=if(subfolders.isNotEmpty()) subfolders else listOf(root)
+ if(subfolders.isNotEmpty()) context.getSharedPreferences("image_folder_books",0).edit().remove(uri.toString()).apply()
  val edit=context.getSharedPreferences("image_folder_books",0).edit()
  var added=0
  targets.forEach { folder ->
@@ -79,12 +80,14 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
  var bitmap by remember(key) { mutableStateOf<Bitmap?>(null) }
  var error by remember(key) { mutableStateOf<String?>(null) }
  var loading by remember(key) { mutableStateOf(true) }
+ var loading by remember(key) { mutableStateOf(true) }
  LaunchedEffect(key) {
   try { pages=withContext(Dispatchers.IO) { folderPages(context,book.uri) };index=index.coerceIn(0,(pages.size-1).coerceAtLeast(0)) }
   catch(e:Exception) { error=e.message ?: "Cannot read folder" }
  }
  LaunchedEffect(key,index,pages) {
   if(pages.isNotEmpty()) try {
+   loading=true
    loading=true
    bitmap=null
    bitmap=withContext(Dispatchers.IO) { decodePage(context,pages[index].uri) }
