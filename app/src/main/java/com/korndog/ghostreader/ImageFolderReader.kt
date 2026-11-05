@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -28,9 +29,21 @@ import kotlinx.coroutines.withContext
 internal data class ImageFolderBook(val uri: Uri, val title: String)
 private val imageTypes = setOf("jpg","jpeg","png","webp")
 private fun naturalKey(s:String)=s.lowercase().replace(Regex("\\d+")) { it.value.padStart(12,'0') }
-internal fun folderPages(context:Context, uri:Uri):List<DocumentFile> =
- DocumentFile.fromTreeUri(context,uri)?.listFiles()?.filter { it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in imageTypes }
+private val pageListCache=object:LinkedHashMap<String,List<DocumentFile>>(12,0.75f,true) {
+ override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,List<DocumentFile>>?):Boolean=size>12
+}
+private val pageBitmapCache=object:LruCache<String,Bitmap>(24*1024) {
+ override fun sizeOf(key:String,value:Bitmap):Int=(value.byteCount/1024).coerceAtLeast(1)
+}
+internal fun folderPages(context:Context, uri:Uri):List<DocumentFile> {
+ val key=uri.toString()
+ synchronized(pageListCache) { pageListCache[key]?.let { return it } }
+ val found=DocumentFile.fromTreeUri(context,uri)?.listFiles()
+  ?.filter { it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in imageTypes }
   ?.sortedBy { naturalKey(it.name.orEmpty()) } ?: emptyList()
+ if(found.isNotEmpty()) synchronized(pageListCache) { pageListCache[key]=found }
+ return found
+}
 
 internal fun savedImageFolders(context:Context):List<ImageFolderBook> {
  val prefs=context.getSharedPreferences("image_folder_books",0)
@@ -62,35 +75,48 @@ internal fun removeImageFolder(context:Context,uri:Uri) {
  context.getSharedPreferences("image_folder_books",0).edit().remove(uri.toString()).apply()
 }
 private fun decodePage(context:Context,uri:Uri):Bitmap? {
+ val key=uri.toString()
+ synchronized(pageBitmapCache) { pageBitmapCache.get(key)?.let { return it } }
  val resolver=context.contentResolver
  val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
  resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it,null,bounds) }
  var sample=1
  while(bounds.outWidth/sample>1600 || bounds.outHeight/sample>2400) sample*=2
  val opts=BitmapFactory.Options().apply { inSampleSize=sample;inPreferredConfig=Bitmap.Config.RGB_565 }
- return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it,null,opts) }
+ val decoded=resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it,null,opts) }
+ if(decoded!=null) synchronized(pageBitmapCache) { pageBitmapCache.put(key,decoded) }
+ return decoded
 }
 @Composable
 internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
  val context=LocalContext.current
  val prefs=remember { context.getSharedPreferences("image_folder_progress",0) }
  val key=book.uri.toString()
- var pages by remember(key) { mutableStateOf<List<DocumentFile>>(emptyList()) }
+ var pages by remember(key) { mutableStateOf<List<DocumentFile>>(synchronized(pageListCache) { pageListCache[key] ?: emptyList() }) }
  var index by remember(key) { mutableIntStateOf(prefs.getInt(key,0)) }
  var bitmap by remember(key) { mutableStateOf<Bitmap?>(null) }
  var error by remember(key) { mutableStateOf<String?>(null) }
  var loading by remember(key) { mutableStateOf(true) }
  LaunchedEffect(key) {
-  try { pages=withContext(Dispatchers.IO) { folderPages(context,book.uri) };index=index.coerceIn(0,(pages.size-1).coerceAtLeast(0)) }
+  try {
+   val found=withContext(Dispatchers.IO) { folderPages(context,book.uri) }
+   if(found.isEmpty()) error="No image pages found. Re-select the book folder in Downloads."
+   else { pages=found;index=index.coerceIn(0,found.lastIndex);error=null }
+  }
   catch(e:Exception) { error=e.message ?: "Cannot read folder" }
  }
  LaunchedEffect(key,index,pages) {
   if(pages.isNotEmpty()) try {
    loading=true
-   bitmap=null
-   bitmap=withContext(Dispatchers.IO) { decodePage(context,pages[index].uri) }
+   bitmap=synchronized(pageBitmapCache) { pageBitmapCache.get(pages[index].uri.toString()) }
+   if(bitmap==null) bitmap=withContext(Dispatchers.IO) { decodePage(context,pages[index].uri) }
    if(bitmap==null) error="Could not read page"
-   else { error=null;prefs.edit().putInt(key,index).apply() }
+   else {
+    error=null
+    prefs.edit().putInt(key,index).apply()
+    val nearby=listOf(index+1,index-1).filter { it in pages.indices }
+    withContext(Dispatchers.IO) { nearby.forEach { next -> try { decodePage(context,pages[next].uri) } catch(_:Exception) {} } }
+   }
    loading=false
   } catch(e:Exception) { error=e.message ?: "Could not load page";loading=false }
  }
@@ -98,7 +124,7 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
   Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
    TextButton(onClick=onClose) { Text("← Library") }
-   Text("${index+1} / ${pages.size}",modifier=Modifier.padding(14.dp))
+   Text("${if(pages.isEmpty()) 0 else index+1} / ${pages.size}",modifier=Modifier.padding(14.dp))
   }
   Box(Modifier.fillMaxWidth().weight(1f).pointerInput(pages,index) {
    var drag=0f
@@ -109,7 +135,7 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
    },onHorizontalDrag={change,amount->change.consume();drag+=amount})
   }) {
    bitmap?.let { Image(it.asImageBitmap(),contentDescription="Page ${index+1}",modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Fit) }
-   if(loading) CircularProgressIndicator(modifier=Modifier.align(Alignment.Center))
+   if(loading && bitmap==null) CircularProgressIndicator(modifier=Modifier.align(Alignment.Center))
    error?.let { Text(it,color=Color.Red,modifier=Modifier.align(Alignment.Center).padding(16.dp)) }
   }
   Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
