@@ -69,7 +69,7 @@ internal fun ReadingRoom(
    comics.forEach { file -> add(RoomItem(cleanRoomTitle(file.nameWithoutExtension), "Comics", seriesOf(cleanRoomTitle(file.nameWithoutExtension)), { onComic(file) }, file = file)) }
    imageBooks.forEach { book ->
     val series = if (book.title.matches(Regex("^\\d+\\s*[-.]\\s*.*"))) "Image Book Collection" else seriesOf(book.title)
-    add(RoomItem(book.title, "Image", series) { onImage(book) })
+    add(RoomItem(book.title, "Image", series, open = { onImage(book) }))
    }
   }
  }
