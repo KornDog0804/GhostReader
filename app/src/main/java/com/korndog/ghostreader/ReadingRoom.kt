@@ -26,6 +26,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val plum = Color(0xFFB784FF)
 private val lime = Color(0xFFB9F54C)
@@ -33,7 +41,8 @@ private val wood = Color(0xFF302018)
 
 private data class RoomItem(
  val title: String, val kind: String, val series: String,
- val open: () -> Unit
+ val open: () -> Unit,
+ val book: Book? = null, val file: File? = null
 )
 
 @Composable
@@ -50,14 +59,14 @@ internal fun ReadingRoom(
  BackHandler { if (staged != null) staged = null else if (selectedSeries != null) selectedSeries = null else onClassic() }
  val items = remember(books, audio, pdfs, comics, imageBooks) {
   buildList {
-   books.forEach { book -> add(RoomItem(book.title, "Read", seriesOf(book.title)) { onBook(book) }) }
+   books.forEach { book -> add(RoomItem(book.title, "Read", seriesOf(book.title), { onBook(book) }, book = book)) }
    audio.forEach { file ->
     val title = cleanRoomTitle(file.nameWithoutExtension)
     val carl = listOf("Dungeon Crawler Carl", "Carl's Doomsday Scenario", "The Dungeon Anarchist's Cookbook", "The Gate of the Feral Gods", "The Butcher's Masquerade", "The Eye of the Bedlam Bride", "This Inevitable Ruin", "A Parade of Horribles").any { title.contains(it, ignoreCase = true) }
-    add(RoomItem(title, "Audio", if(carl) "Dungeon Crawler Carl" else seriesOf(title)) { onAudio(file) })
+    add(RoomItem(title, "Audio", if(carl) "Dungeon Crawler Carl" else seriesOf(title), { onAudio(file) }, file = file))
    }
-   pdfs.forEach { file -> add(RoomItem(cleanRoomTitle(file.nameWithoutExtension), "PDF", seriesOf(cleanRoomTitle(file.nameWithoutExtension))) { onPdf(file) }) }
-   comics.forEach { file -> add(RoomItem(cleanRoomTitle(file.nameWithoutExtension), "Comics", seriesOf(cleanRoomTitle(file.nameWithoutExtension))) { onComic(file) }) }
+   pdfs.forEach { file -> add(RoomItem(cleanRoomTitle(file.nameWithoutExtension), "PDF", seriesOf(cleanRoomTitle(file.nameWithoutExtension)), { onPdf(file) }, file = file)) }
+   comics.forEach { file -> add(RoomItem(cleanRoomTitle(file.nameWithoutExtension), "Comics", seriesOf(cleanRoomTitle(file.nameWithoutExtension)), { onComic(file) }, file = file)) }
    imageBooks.forEach { book ->
     val series = if (book.title.matches(Regex("^\\d+\\s*[-.]\\s*.*"))) "Image Book Collection" else seriesOf(book.title)
     add(RoomItem(book.title, "Image", series) { onImage(book) })
@@ -84,9 +93,8 @@ internal fun ReadingRoom(
     Text(if(chosen.kind=="Audio") "♫  THE JUKEBOX" else "▤  THE READING DESK", color=plum, fontSize=18.sp, fontWeight=FontWeight.Bold)
     Spacer(Modifier.height(28.dp))
     Box(Modifier.fillMaxWidth().height(260.dp).background(Brush.verticalGradient(listOf(Color(0xFF4B3024),Color(0xFF1B1219))),RoundedCornerShape(20.dp)), contentAlignment=Alignment.Center) {
-     Column(horizontalAlignment=Alignment.CenterHorizontally, modifier=Modifier.offset(y=rise).graphicsLayer(scaleX=scale,scaleY=scale)) {
-      Text(if(chosen.kind=="Audio") "♫" else if(chosen.kind=="Comics" || chosen.kind=="Image") "▣" else "▤", color=lime,fontSize=70.sp)
-      Text(chosen.title,color=Color.White,fontWeight=FontWeight.Bold,fontSize=19.sp,maxLines=3,overflow=TextOverflow.Ellipsis)
+     Box(modifier=Modifier.offset(y=rise).graphicsLayer(scaleX=scale,scaleY=scale).width(180.dp).height(240.dp)) {
+      RoomCover(chosen, Modifier.fillMaxSize())
      }
     }
     Spacer(Modifier.height(22.dp))
@@ -115,19 +123,7 @@ internal fun ReadingRoom(
         Column(Modifier.weight(1f).clickable {
          if (entry.value.size == 1) staged = entry.value.first() else selectedSeries = entry.key
         }, horizontalAlignment = Alignment.CenterHorizontally) {
-         Box(
-          Modifier.fillMaxWidth().height(142.dp)
-           .shadow(5.dp, RoundedCornerShape(topStart = 5.dp, topEnd = 8.dp))
-           .background(Brush.verticalGradient(listOf(Color(0xFF594030),Color(0xFF241727))), RoundedCornerShape(5.dp))
-           .padding(7.dp),
-          contentAlignment = Alignment.Center
-         ) {
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-           Text(if(entry.value.first().kind=="Audio") "♫" else if(entry.value.first().kind=="Comics") "▣" else "▤", color=lime,fontSize=26.sp)
-           Spacer(Modifier.height(7.dp))
-           Text(entry.key,color=Color.White,fontWeight=FontWeight.Bold,fontSize=11.sp,maxLines=4,overflow=TextOverflow.Ellipsis)
-          }
-         }
+         RoomCover(entry.value.first(), Modifier.fillMaxWidth().height(142.dp).shadow(5.dp, RoundedCornerShape(5.dp)))
          Spacer(Modifier.height(7.dp))
          Text(if(entry.value.size>1) "${entry.value.size} volumes" else "Tap to open",color=plum,fontSize=10.sp,maxLines=1)
         }
@@ -145,11 +141,8 @@ internal fun ReadingRoom(
      Column {
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
        rowEntries.forEach { entry ->
-        Box(Modifier.weight(1f).height(154.dp).background(Color(0xFF39263A),RoundedCornerShape(7.dp)).clickable { staged=entry }.padding(9.dp),contentAlignment=Alignment.Center) {
-         Column(horizontalAlignment=Alignment.CenterHorizontally) {
-          Text(if(entry.kind=="Audio") "♫" else "▤",color=lime,fontSize=28.sp)
-          Text(entry.title,color=Color.White,fontSize=11.sp,maxLines=4,overflow=TextOverflow.Ellipsis)
-         }
+        Box(Modifier.weight(1f).height(154.dp).clickable { staged=entry }) {
+         RoomCover(entry, Modifier.fillMaxSize())
         }
        }
        repeat(3-rowEntries.size) { Spacer(Modifier.weight(1f)) }
@@ -163,6 +156,25 @@ internal fun ReadingRoom(
   Row(Modifier.fillMaxWidth().background(Color(0xFF1B1222)).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
    OutlinedButton(onClick = { roomMode=if(roomMode=="Desk") "Shelves" else "Desk"; selectedKind="All"; selectedSeries=null; staged=null }, modifier=Modifier.weight(1f)) { Text("▤ Reading Desk", fontSize=12.sp) }
    OutlinedButton(onClick = { roomMode=if(roomMode=="Jukebox") "Shelves" else "Jukebox"; selectedKind="All"; selectedSeries=null; staged=null }, modifier=Modifier.weight(1f)) { Text("♫ Jukebox", fontSize=12.sp) }
+  }
+ }
+}
+
+
+@Composable
+private fun RoomCover(item: RoomItem, modifier: Modifier = Modifier) {
+ val context = LocalContext.current
+ val cover by produceState<Bitmap?>(null, item.book, item.file) {
+  value = withContext(Dispatchers.IO) {
+   runCatching { roomCoverBitmap(context, item.book, item.file, item.kind, item.title) }.getOrNull()
+  }
+ }
+ if (cover != null) {
+  Image(bitmap = cover!!.asImageBitmap(), contentDescription = item.title,
+   modifier = modifier.clip(RoundedCornerShape(5.dp)), contentScale = ContentScale.Crop)
+ } else {
+  Box(modifier.background(Brush.verticalGradient(listOf(Color(0xFF594030), Color(0xFF241727))), RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
+   Text(item.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 4, overflow = TextOverflow.Ellipsis)
   }
  }
 }

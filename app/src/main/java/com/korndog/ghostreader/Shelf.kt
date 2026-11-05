@@ -702,3 +702,28 @@ internal fun LibraryScreen(
         }
     }
 }
+
+/** Room artwork uses the same identity, manual-cover storage and metadata as Classic Library. */
+internal fun roomCoverBitmap(context: android.content.Context, book: Book?, file: File?, kind: String, title: String): Bitmap? {
+ val entry = when {
+  book != null -> ShelfEntry(book, null, title, "", null, 0L, seriesOf(title))
+  kind == "Audio" && file != null -> ShelfEntry(null, file, title, "", null, 0L, seriesOf(title))
+  kind == "PDF" && file != null -> ShelfEntry(null, null, title, "", null, 0L, seriesOf(title), pdf = file)
+  kind == "Comics" && file != null -> ShelfEntry(null, null, title, "", null, 0L, seriesOf(title), comic = file)
+  else -> return null
+ }
+ val manual = manualCoverFile(context, entry)
+ if (manual.isFile) {
+  val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+  BitmapFactory.decodeFile(manual.absolutePath, bounds)
+  var sample = 1
+  while (bounds.outWidth / sample > 360 || bounds.outHeight / sample > 540) sample *= 2
+  BitmapFactory.decodeFile(manual.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 })?.let { return it }
+ }
+ return when {
+  book != null -> readVolumeMetadata(book).cover
+  kind == "Audio" && file != null -> readShelfAudioMetadata(file).cover
+  file != null -> cachedDocumentCover(context, entry)
+  else -> null
+ }
+}
