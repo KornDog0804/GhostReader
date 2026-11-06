@@ -70,6 +70,10 @@ internal data class DiagRow(
     val newest: Long,
     val largest: List<Pair<String, Long>>,
     val partial: Boolean,
+    val taggedBytes: Long,
+    val taggedFiles: Int,
+    val gids: String,
+    val details: List<Triple<String, Long, Boolean>>,
     val role: String,
     val permanence: String,
     val note: String
@@ -108,12 +112,25 @@ private class Tally {
     var newest = 0L
     val largest = ArrayList<Pair<String, Long>>()
     var partial = false
+    var taggedBytes = 0L
+    var taggedFiles = 0
+    val gids = java.util.TreeSet<Int>()
+    val details = ArrayList<Triple<String, Long, Boolean>>()
 }
 
-private fun addFile(t: Tally, root: File, f: File) {
+// Android counts a file as "cache" when its group id is in the cache range (20000..29999),
+// whatever folder it now lives in. stat() only reads metadata.
+private fun fileGid(f: File): Int = runCatching { android.system.Os.stat(f.path).st_gid }.getOrDefault(-1)
+
+private fun addFile(t: Tally, root: File, f: File, detail: Boolean) {
     val len = f.length().coerceAtLeast(0L)
     t.bytes += len
     t.files++
+    val gid = fileGid(f)
+    val tagged = gid in 20000..29999
+    if (t.gids.size < 6) t.gids.add(gid)
+    if (tagged) { t.taggedBytes += len; t.taggedFiles++ }
+    if (detail && t.details.size < 80) t.details.add(Triple(runCatching { f.relativeTo(root).path }.getOrDefault(f.name), len, tagged))
     val m = f.lastModified()
     if (m < t.oldest) t.oldest = m
     if (m > t.newest) t.newest = m
@@ -128,10 +145,10 @@ private fun addFile(t: Tally, root: File, f: File) {
 private fun isLink(f: File): Boolean = runCatching { java.nio.file.Files.isSymbolicLink(f.toPath()) }.getOrDefault(false)
 
 /** Iterative walk (no recursion), size and date only. Never opens a file. */
-private fun scanTree(root: File, budget: Budget, progress: DiagProgress, cancelled: () -> Boolean): Tally {
+private fun scanTree(root: File, budget: Budget, progress: DiagProgress, detail: Boolean, cancelled: () -> Boolean): Tally {
     val t = Tally()
     if (!root.exists()) return t
-    if (!root.isDirectory) { addFile(t, root, root); return t }
+    if (!root.isDirectory) { addFile(t, root, root, detail); return t }
     val stack = ArrayDeque<File>()
     stack.addLast(root)
     while (stack.isNotEmpty()) {
@@ -143,7 +160,7 @@ private fun scanTree(root: File, budget: Budget, progress: DiagProgress, cancell
             budget.entries++
             progress.entries.incrementAndGet()
             if (budget.entries % 2000L == 0L) Thread.yield()
-            if (k.isDirectory) { if (!isLink(k)) stack.addLast(k) } else addFile(t, root, k)
+            if (k.isDirectory) { if (!isLink(k)) stack.addLast(k) } else addFile(t, root, k, detail)
         }
     }
     if (t.files == 0) { t.oldest = root.lastModified(); t.newest = root.lastModified() }
@@ -204,7 +221,7 @@ internal suspend fun runDiagnostic(context: Context, progress: DiagProgress, onR
                 ?.forEach { targets.add(Triple("app data", it.name, it)) }
             for ((group, name, file) in targets) {
                 if (job?.isActive == false) break
-                val tally = scanTree(file, budget, progress) { job?.isActive == false }
+                val tally = scanTree(file, budget, progress, group == "files") { job?.isActive == false }
                 if (tally.partial) partial = true
                 val (role, permanence) = classify(group, name)
                 val staging = role.contains("staging") || role.contains("work folder")
@@ -216,7 +233,7 @@ internal suspend fun runDiagnostic(context: Context, progress: DiagProgress, onR
                 }
                 val row = DiagRow(
                     group, name, tally.bytes, tally.files, tally.dirs, tally.oldest, tally.newest,
-                    tally.largest.toList(), tally.partial, role, permanence, note
+                    tally.largest.toList(), tally.partial, tally.taggedBytes, tally.taggedFiles, tally.gids.joinToString(","), tally.details.toList(), role, permanence, note
                 )
                 withContext(Dispatchers.Main) { onRow(row) }
                 if (budget.exceeded()) { partial = true; break }
@@ -259,15 +276,17 @@ internal fun buildReport(rows: List<DiagRow>, s: DiagSummary): String {
     sb.append("Device: free ${fmtBytes(s.deviceFree)} of ${fmtBytes(s.deviceTotal)}\n")
     sb.append("Walked totals by group: ")
     sb.append(rows.groupBy { it.group }.map { (g, r) -> "$g ${fmtBytes(r.sumOf { it.bytes })}" }.joinToString(", "))
-    sb.append("\n\n")
+    sb.append("\nFiles Android counts as cache: ${fmtBytes(rows.sumOf { it.taggedBytes })} total, of which outside the cache folder: ${fmtBytes(rows.filter { it.group != "cache" }.sumOf { it.taggedBytes })}\n\n")
     rows.sortedWith(compareBy({ groupOrder(it.group) }, { -it.bytes })).forEach { r ->
         sb.append("[${r.group}] ${r.name} | ${fmtBytes(r.bytes)} | ${r.files} files, ${r.dirs} folders")
         sb.append(" | newest ${ago(now - r.newest)}, oldest ${ago(now - r.oldest)}")
         sb.append(" | ${r.role} (${r.permanence})")
         if (r.note.isNotBlank()) sb.append(" | ${r.note}")
         if (r.partial) sb.append(" | PARTIAL")
+        sb.append(" | counted as cache by Android: ${fmtBytes(r.taggedBytes)} (${r.taggedFiles} files) gids=${r.gids}")
         sb.append('\n')
-        r.largest.take(3).forEach { sb.append("    largest: ${it.first} ${fmtBytes(it.second)}\n") }
+        if (r.details.isNotEmpty()) r.details.forEach { sb.append("    ${if (it.third) "CACHE-TAGGED" else "data        "} ${fmtBytes(it.second)}  ${it.first}\n") }
+        else r.largest.take(3).forEach { sb.append("    largest: ${it.first} ${fmtBytes(it.second)}\n") }
     }
     sb.append("\nBackup copies in Downloads made by this app: ${s.backups.size} files, ${fmtBytes(s.backups.sumOf { it.second })}\n")
     s.backups.take(10).forEach { sb.append("    ${it.first} ${fmtBytes(it.second)}\n") }
@@ -351,6 +370,7 @@ internal fun StorageDiagnosticScreen(onClose: () -> Unit) {
                     Text("${r.files} files · ${r.dirs} folders · newest ${ago(now - r.newest)} · oldest ${ago(now - r.oldest)}", color = dim, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                     if (r.note.isNotBlank()) Text(r.note, color = warn, fontWeight = FontWeight.Bold)
                     if (r.partial) Text("Partial scan", color = warn)
+                    if (r.taggedBytes > 0) Text("Android counts ${fmtBytes(r.taggedBytes)} (${r.taggedFiles} files) of this as CACHE", color = warn, fontWeight = FontWeight.Bold)
                     r.largest.take(3).forEach { Text("  ${it.first} · ${fmtBytes(it.second)}", color = dim, style = androidx.compose.material3.MaterialTheme.typography.bodySmall) }
                 }
             }
