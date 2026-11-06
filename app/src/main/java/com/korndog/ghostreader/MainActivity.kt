@@ -122,6 +122,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  var audioSelection by remember { mutableStateOf<java.util.concurrent.CompletableFuture<Int>?>(null) }
  var showTools by remember { mutableStateOf(false) }
  var backupBusy by remember { mutableStateOf(false) }
+ var showDiagnostic by remember { mutableStateOf(false) }
  var backupStatus by remember { mutableStateOf("") }
  var savedBackupUri by remember { mutableStateOf<android.net.Uri?>(null) }
  var syncUrl by remember { mutableStateOf(CloudSync.url(ctx)) }
@@ -295,7 +296,9 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
   } catch (e: Exception) { error = e.message ?: "Could not open book" }
  }
  Surface(color = dark, modifier = Modifier.fillMaxSize()) {
-  if(selectedImageFolder != null) {
+  if(showDiagnostic) {
+   StorageDiagnosticScreen(onClose={showDiagnostic=false})
+  } else if(selectedImageFolder != null) {
    ImageFolderReader(selectedImageFolder!!,onClose={selectedImageFolder=null})
   } else if(selectedPdf != null) {
    key(selectedPdf!!.absolutePath) { PdfReader(selectedPdf!!,onClose={selectedPdf=null}) }
@@ -422,6 +425,11 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        }) { Text(if (syncBusy) "Syncing…" else "Save & sync") }
        Text(syncStatus, color = violet, style = MaterialTheme.typography.bodySmall)
        Text("Keeps ebooks, PDFs and comics the same on every device using your own Cloudflare. Audiobooks and reading progress are not synced yet. Nothing on this phone is ever deleted by sync.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+       Spacer(Modifier.height(24.dp))
+       Text("DIAGNOSTICS", color = violet, fontWeight = FontWeight.Bold)
+       Spacer(Modifier.height(8.dp))
+       OutlinedButton(onClick = { showDiagnostic = true }) { Text("Storage diagnostic") }
+       Text("Read-only report of what is using space. Nothing is changed.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
        Spacer(Modifier.height(24.dp))
        Text("SHARED LIBRARY  •  GOOGLE DRIVE", color = violet, fontWeight = FontWeight.Bold)
        Spacer(Modifier.height(8.dp))
