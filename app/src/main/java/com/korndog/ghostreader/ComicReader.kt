@@ -54,24 +54,18 @@ internal fun ComicReader(file:File,onClose:()->Unit) {
    prefs.edit().putInt(key,index).apply()
   } catch(e:Exception) { message=e.message }
  }
+ var showControls by remember { mutableStateOf(true) }
  BackHandler { onClose() }
  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-  Row(Modifier.fillMaxWidth().padding(8.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+  if(showControls) Row(Modifier.fillMaxWidth().padding(8.dp),horizontalArrangement=Arrangement.SpaceBetween) {
    TextButton(onClick=onClose){Text("← Library")}
    Text("${index+1} / ${names.size}",modifier=Modifier.padding(12.dp))
   }
-  Box(Modifier.weight(1f).fillMaxWidth().pointerInput(names,index) {
-   var delta=0f
-   detectHorizontalDragGestures(onDragEnd={
-    if(delta < -65 && index < names.lastIndex) index++
-    if(delta > 65 && index > 0) index--
-    delta=0f
-   },onHorizontalDrag={change,amount->change.consume();delta+=amount})
-  }) {
+  GesturePage(pageKey=index,canPrev=index>0,canNext=index<names.lastIndex,onPrev={index--},onNext={index++},onCenterTap={showControls=!showControls},modifier=Modifier.weight(1f).fillMaxWidth()) {
    image?.let { Image(bitmap=it.asImageBitmap(),contentDescription="Comic page ${index+1}",modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Fit) }
    message?.let { Text(it) }
   }
-  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+  if(showControls) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
    OutlinedButton(onClick={index--},enabled=index>0){Text("← Previous")}
    OutlinedButton(onClick={index++},enabled=index<names.lastIndex){Text("Next →")}
   }

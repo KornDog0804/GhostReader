@@ -120,25 +120,19 @@ internal fun ImageFolderReader(book:ImageFolderBook,onClose:()->Unit) {
    loading=false
   } catch(e:Exception) { error=e.message ?: "Could not load page";loading=false }
  }
+ var showControls by remember { mutableStateOf(true) }
  BackHandler { onClose() }
  Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+  if(showControls) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
    TextButton(onClick=onClose) { Text("← Library") }
    Text("${if(pages.isEmpty()) 0 else index+1} / ${pages.size}",modifier=Modifier.padding(14.dp))
   }
-  Box(Modifier.fillMaxWidth().weight(1f).pointerInput(pages,index) {
-   var drag=0f
-   detectHorizontalDragGestures(onDragEnd={
-    if(drag < -65 && index<pages.lastIndex) index++
-    if(drag > 65 && index>0) index--
-    drag=0f
-   },onHorizontalDrag={change,amount->change.consume();drag+=amount})
-  }) {
+  GesturePage(pageKey=index,canPrev=index>0,canNext=index<pages.lastIndex,onPrev={index--},onNext={index++},onCenterTap={showControls=!showControls},modifier=Modifier.fillMaxWidth().weight(1f)) {
    bitmap?.let { Image(it.asImageBitmap(),contentDescription="Page ${index+1}",modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Fit) }
    if(loading && bitmap==null) CircularProgressIndicator(modifier=Modifier.align(Alignment.Center))
    error?.let { Text(it,color=Color.Red,modifier=Modifier.align(Alignment.Center).padding(16.dp)) }
   }
-  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+  if(showControls) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
    OutlinedButton(onClick={index--},enabled=index>0) { Text("← Previous") }
    OutlinedButton(onClick={index++},enabled=index<pages.lastIndex) { Text("Next →") }
   }
