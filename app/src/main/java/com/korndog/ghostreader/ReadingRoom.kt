@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -92,13 +95,14 @@ internal fun ReadingRoom(
    Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
     Text(if(chosen.kind=="Audio") "♫  THE JUKEBOX" else "▤  THE READING DESK", color=plum, fontSize=18.sp, fontWeight=FontWeight.Bold)
     Spacer(Modifier.height(28.dp))
-    Box(Modifier.fillMaxWidth().height(260.dp).background(Brush.verticalGradient(listOf(Color(0xFF4B3024),Color(0xFF1B1219))),RoundedCornerShape(20.dp)), contentAlignment=Alignment.Center) {
+    Box(Modifier.fillMaxWidth().height(260.dp), contentAlignment=Alignment.Center) {
+     RoomWoodScene(Modifier.fillMaxSize(), chosen.kind == "Audio")
      Box(modifier=Modifier.offset(y=rise).graphicsLayer(scaleX=scale,scaleY=scale).width(180.dp).height(240.dp)) {
       RoomCover(chosen, Modifier.fillMaxSize())
      }
     }
     Spacer(Modifier.height(22.dp))
-    Button(onClick={ chosen.open() }, colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF6D3FD0))) { Text(if(chosen.kind=="Audio") "▶ Play / Resume audiobook" else "Open full-screen / Resume reading") }
+    Button(onClick={ chosen.open() }, colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF6D3FD0), contentColor=Color.White)) { Text(if(chosen.kind=="Audio") "▶ Play / Resume audiobook" else "Open full-screen / Resume reading") }
     TextButton(onClick={staged=null}) { Text("‹ Return to shelves",color=plum) }
    }
   } else if (selectedSeries != null) {
@@ -131,7 +135,7 @@ internal fun ReadingRoom(
        repeat(3-rowEntries.size) { Spacer(Modifier.weight(1f)) }
       }
       Spacer(Modifier.height(4.dp))
-      Box(Modifier.fillMaxWidth().height(15.dp).background(Brush.verticalGradient(listOf(Color(0xFF80583A),Color(0xFF29170F))),RoundedCornerShape(3.dp)))
+      RoomWoodScene(Modifier.fillMaxWidth().height(18.dp), false)
      }
     }
    } else {
@@ -148,7 +152,7 @@ internal fun ReadingRoom(
        repeat(3-rowEntries.size) { Spacer(Modifier.weight(1f)) }
       }
       Spacer(Modifier.height(5.dp))
-      Box(Modifier.fillMaxWidth().height(12.dp).background(Color(0xFF70462F)))
+      RoomWoodScene(Modifier.fillMaxWidth().height(15.dp), false)
      }
     }
    }
@@ -180,3 +184,22 @@ private fun RoomCover(item: RoomItem, modifier: Modifier = Modifier) {
 }
 
 private fun cleanRoomTitle(raw: String): String = raw.replace(Regex("^\\d{10,}[_\\s-]*"), "").replace(Regex("(?i)\\b(?:oceanofpdf\\.com|digital)\\b"), "").replace('_', ' ').replace(Regex("\\s+"), " ").trim(' ', '-', '.').ifBlank { raw }
+
+@Composable
+private fun RoomWoodScene(modifier: Modifier, jukebox: Boolean) {
+ Canvas(modifier.clip(RoundedCornerShape(8.dp))) {
+  val w=size.width; val h=size.height
+  drawRect(brush=Brush.verticalGradient(listOf(Color(0xFF69432B),Color(0xFF24130F),Color(0xFF100C15))))
+  for(i in 0..18) {
+   val y=h*(i+0.5f)/19f
+   drawLine(color=if(i%3==0) Color(0x337C5639) else Color(0x33320F0D),start=Offset(0f,y),end=Offset(w,y+((i%4)-2)*2f),strokeWidth=if(i%4==0) 3f else 1f)
+  }
+  drawRect(brush=Brush.horizontalGradient(listOf(Color(0x55000000),Color.Transparent,Color(0x66000000))))
+  drawLine(Color(0xAAAC7349),Offset(0f,h*0.06f),Offset(w,h*0.06f),2f)
+  drawLine(Color(0xAA160B0A),Offset(0f,h*0.94f),Offset(w,h*0.94f),4f)
+  if(jukebox) {
+   drawCircle(Color(0x443EDE8C),radius=w*0.4f,center=Offset(w/2,h/2),style=Stroke(width=9f))
+   drawCircle(Color(0x557F32E5),radius=w*0.32f,center=Offset(w/2,h/2),style=Stroke(width=6f))
+  }
+ }
+}
