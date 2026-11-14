@@ -433,6 +433,30 @@ internal fun LibraryScreen(
     val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
     var exportCover by remember { mutableStateOf<Bitmap?>(null) }
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
+    // "Save this one": one book, comic, PDF or audiobook plus its progress and bookmarks, checked after saving.
+    var saveOneEntry by remember { mutableStateOf<ShelfEntry?>(null) }
+    val saveOne = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val target = saveOneEntry
+        saveOneEntry = null
+        if (uri != null && target != null) {
+            val (kind, file) = when {
+                target.book != null -> BackupKind.BOOKS to target.book.file
+                target.audio != null -> BackupKind.AUDIO to target.audio
+                target.pdf != null -> BackupKind.PDFS to target.pdf
+                else -> BackupKind.COMICS to target.comic!!
+            }
+            val cover = manualCoverFile(context, target).takeIf { it.exists() }
+            android.widget.Toast.makeText(context, "Saving \u201c${target.title}\u201d. Keep this screen open.", android.widget.Toast.LENGTH_SHORT).show()
+            exportScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { LibraryBackup.exportOne(context.applicationContext, kind, file, cover, target.title, uri) }
+                }
+                android.widget.Toast.makeText(context,
+                    result.fold({ it.summary() }, { "Save failed: ${it.message}" }),
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     val audioExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val source = exportSource
         exportSource = null
@@ -592,6 +616,11 @@ internal fun LibraryScreen(
                             menuEntry = null
                         }) { Text("Reset cover to automatic") }
                     }
+                    TextButton(onClick = {
+                        saveOneEntry = entry
+                        menuEntry = null
+                        saveOne.launch(entry.title.replace(Regex("[^a-zA-Z0-9 .,'()!-]"), "").trim().ifBlank { "GhostReader item" } + " - GhostReader.zip")
+                    }) { Text("Save this one (with progress)") }
                     if (entry.audio != null) {
                         TextButton(onClick = {
                             exportSource = entry.audio

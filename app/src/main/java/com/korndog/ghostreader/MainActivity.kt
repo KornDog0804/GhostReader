@@ -194,10 +194,15 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
       if (c.moveToFirst()) (c.getString(0) ?: "GhostReader-Library.zip") to (if (c.isNull(1)) 0L else c.getLong(1)) else null
      }
     }.getOrNull()
-    uiHandler.post { backupBusy = false; result.onSuccess {
+    uiHandler.post { backupBusy = false; result.onSuccess { report ->
      savedBackupUri = uri
-     val mb = (info?.second ?: 0L) / 1_000_000
-     backupStatus = "Saved " + (info?.first ?: "GhostReader-Library.zip") + (if (mb > 0) " ($mb MB)" else "") + ". Tap Open saved file to find it. A copy is also in your phone Downloads folder. If Drive shows 0 KB, upload the Downloads copy." }.onFailure { backupStatus = "Backup failed: ${it.message}"; error = backupStatus } }
+     backupStatus = report.summary() + " File: " + (info?.first ?: "GhostReader-Library.zip") + ". Tap Open saved file to find it."
+    }.onFailure { e ->
+     val short = "Backup failed: ${e.message}"
+     val steps = (e as? BackupException)?.details.orEmpty()
+     backupStatus = if (steps.isBlank()) short else short + "\n\nLast steps:\n" + steps
+     error = short
+    } }
    }
   }
  }
@@ -209,7 +214,18 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    backupStatus = "Reading backup ZIP..."
    backupWorker.execute {
     val result = runCatching { LibraryBackup.restore(ctx.applicationContext, uri) }
-    uiHandler.post { backupBusy = false; result.onSuccess { books = scanBooks(shelf); backupStatus = "Restored $it ebooks, available audiobooks and saved progress"; audioFiles = scanAudioFiles(File(ctx.filesDir, "audio")) }.onFailure { backupStatus = "Restore failed: ${it.message}"; error = backupStatus } }
+    uiHandler.post { backupBusy = false; result.onSuccess { report ->
+     books = scanBooks(shelf)
+     audioFiles = scanAudioFiles(File(ctx.filesDir, "audio"))
+     comics = scanComics(File(ctx.filesDir, "comics").apply { mkdirs() })
+     pdfFiles = scanPdfs(File(ctx.filesDir, "pdfs").apply { mkdirs() })
+     backupStatus = report.summary()
+    }.onFailure { e ->
+     val short = "Restore failed: ${e.message}"
+     val steps = (e as? BackupException)?.details.orEmpty()
+     backupStatus = if (steps.isBlank()) short else short + "\n\nLast steps:\n" + steps
+     error = short
+    } }
    }
   }
  }
