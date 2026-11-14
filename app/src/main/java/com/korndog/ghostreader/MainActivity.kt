@@ -475,8 +475,8 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    text = { Text("Remove ${file.name.substringAfter('_').substringBeforeLast('.').replace('_', ' ')} from this device? This also clears its saved listening position. Google Drive backups are not affected.") },
    confirmButton = {
     TextButton(onClick = {
-     if (file.delete()) {
-      prefs.edit().remove("audio_" + file.name).apply()
+     if (if (file.isDirectory) file.deleteRecursively() else file.delete()) {
+      prefs.edit().remove("audio_" + file.name).remove("audio_track_" + file.name).apply()
       audioFiles = scanAudioFiles(File(ctx.filesDir, "audio"))
      } else {
       error = "Could not delete audiobook"
