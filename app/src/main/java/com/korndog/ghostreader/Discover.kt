@@ -1,6 +1,10 @@
 package com.korndog.ghostreader
 
 import android.net.Uri
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +24,8 @@ private val purple=Color(0xFFB784FF)
 
 @Composable
 internal fun DiscoverScreen(onMagnet:(String)->Unit) {
+ var source by remember { mutableStateOf("Pirate Bay") }
+ var browser by remember { mutableStateOf<WebView?>(null) }
  var query by remember { mutableStateOf("") }
  var category by remember { mutableStateOf("0") }
  var loading by remember { mutableStateOf(false) }
@@ -52,6 +58,29 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
  Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal=16.dp, vertical=12.dp)) {
   Text("Discover",style=MaterialTheme.typography.titleLarge,color=Color.White)
   Spacer(Modifier.height(10.dp))
+  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+   listOf("Pirate Bay", "AudiobookBay").forEach { name ->
+    FilterChip(selected = source == name, onClick = { source = name }, label = { Text(name) })
+   }
+  }
+  if (source == "AudiobookBay") {
+   Text("Website browser • Only download content you have permission to use.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+   Row {
+    TextButton(onClick = { browser?.goBack() }, enabled = browser?.canGoBack() == true) { Text("Back") }
+    TextButton(onClick = { browser?.reload() }) { Text("Refresh") }
+    TextButton(onClick = { browser?.loadUrl("https://audiobookbay.lu/") }) { Text("Home") }
+   }
+   AndroidView(
+    factory = { context -> WebView(context).apply {
+     settings.javaScriptEnabled = true
+     settings.domStorageEnabled = true
+     webViewClient = WebViewClient()
+     loadUrl("https://audiobookbay.lu/")
+     browser = this
+    } },
+    modifier = Modifier.fillMaxWidth().weight(1f)
+   )
+  } else {
   OutlinedTextField(value=query,onValueChange={query=it},label={Text("Search Pirate Bay")},singleLine=true,modifier=Modifier.fillMaxWidth())
   Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
    listOf("All" to "0","Audio" to "102","Books" to "601","Comics" to "602").forEach { (label,code) ->
@@ -73,6 +102,7 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
      }
     }
    }
+  }
   }
  }
 }
