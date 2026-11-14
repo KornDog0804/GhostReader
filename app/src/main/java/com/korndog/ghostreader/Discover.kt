@@ -3,6 +3,10 @@ package com.korndog.ghostreader
 import android.net.Uri
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -26,6 +30,9 @@ private val purple=Color(0xFFB784FF)
 internal fun DiscoverScreen(onMagnet:(String)->Unit) {
  var source by remember { mutableStateOf("Pirate Bay") }
  var browser by remember { mutableStateOf<WebView?>(null) }
+ var browserError by remember { mutableStateOf<String?>(null) }
+ var browserUrl by remember { mutableStateOf("https://audiobookbay.lu/") }
+ val context = LocalContext.current
  var query by remember { mutableStateOf("") }
  var category by remember { mutableStateOf("0") }
  var loading by remember { mutableStateOf(false) }
@@ -66,15 +73,35 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
   if (source == "AudiobookBay") {
    Text("Website browser • Only download content you have permission to use.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
    Row {
-    TextButton(onClick = { browser?.goBack() }, enabled = browser?.canGoBack() == true) { Text("Back") }
-    TextButton(onClick = { browser?.reload() }) { Text("Refresh") }
-    TextButton(onClick = { browser?.loadUrl("https://audiobookbay.lu/") }) { Text("Home") }
+    TextButton(onClick = { if (browser?.canGoBack() == true) browser?.goBack() }, enabled = browser?.canGoBack() == true) { Text("Back") }
+    TextButton(onClick = { browserError = null; browser?.reload() }) { Text("Refresh") }
+    TextButton(onClick = { browserError = null; browser?.loadUrl("https://audiobookbay.lu/") }) { Text("Home") }
+    TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl))) } }) { Text("Open externally") }
    }
+   if (browserError != null) Text(browserError!!, color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
    AndroidView(
     factory = { context -> WebView(context).apply {
      settings.javaScriptEnabled = true
      settings.domStorageEnabled = true
-     webViewClient = WebViewClient()
+     webViewClient = object : WebViewClient() {
+      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+       val url = request.url
+       if (url.scheme == "http" && url.host.equals("audiobookbay.lu", ignoreCase = true)) {
+        view.loadUrl(url.buildUpon().scheme("https").build().toString())
+        return true
+       }
+       if (url.scheme == "http" || url.scheme == "https") return false
+       // Do not let unexpected schemes navigate the embedded browser.
+       return true
+      }
+      override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+       browserUrl = url
+       browserError = null
+      }
+      override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+       if (request.isForMainFrame) browserError = "Page could not load: ${error.description}. Try Open externally."
+      }
+     }
      loadUrl("https://audiobookbay.lu/")
      browser = this
     } },
