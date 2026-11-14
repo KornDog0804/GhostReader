@@ -207,6 +207,7 @@ internal fun ShelfCover(embedded: Bitmap?, title: String, author: String, modifi
             bitmap = bitmap.asImageBitmap(),
             contentDescription = "Cover of $title",
             contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
+            filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
             modifier = modifier
         )
     } else {

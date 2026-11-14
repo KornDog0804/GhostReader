@@ -41,11 +41,35 @@ internal fun volumeRange(prefix: String): Pair<Int, Int> {
     return (parts.getOrNull(0)?.toIntOrNull() ?: 0) to (parts.getOrNull(1)?.toIntOrNull() ?: Int.MAX_VALUE)
 }
 
-internal fun decodeBitmap(bytes: ByteArray, maxSide: Int = 500): Bitmap? {
+internal fun decodeBitmap(bytes: ByteArray, maxSide: Int = 900): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     val sample = (maxOf(bounds.outWidth, bounds.outHeight) / maxSide).coerceAtLeast(1)
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+}
+
+/**
+ * Largest power-of-two sample size that still leaves the decoded image at least
+ * [minW] x [minH]. Shrinking only down to the size a tile needs (never below it)
+ * keeps covers sharp; the old loops kept halving until the image was *under*
+ * the limit, which could leave a cover at half the intended size.
+ */
+internal fun sharpSampleSize(width: Int, height: Int, minW: Int, minH: Int): Int {
+    if (width <= 0 || height <= 0) return 1
+    var sample = 1
+    while (width / (sample * 2) >= minW && height / (sample * 2) >= minH) sample *= 2
+    return sample
+}
+
+/** Decode an image file for a cover tile: full colour (ARGB_8888), never smaller than 540x810 unless the source is. */
+internal fun decodeCoverFile(path: String, minW: Int = 540, minH: Int = 810): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sharpSampleSize(bounds.outWidth, bounds.outHeight, minW, minH)
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    return BitmapFactory.decodeFile(path, options)
 }
 
 private class Pkg(val opfDir: String, val opf: Document)

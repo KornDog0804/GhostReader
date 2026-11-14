@@ -85,7 +85,7 @@ internal fun pdfCover(file:File):Bitmap =
  ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
   PdfRenderer(fd).use { renderer ->
    renderer.openPage(0).use { page ->
-    val width=360
+    val width=540
     val height=(width.toFloat()*page.height/page.width).toInt().coerceAtLeast(1).coerceAtMost(1200)
     Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888).also { bmp ->
      bmp.eraseColor(android.graphics.Color.WHITE)

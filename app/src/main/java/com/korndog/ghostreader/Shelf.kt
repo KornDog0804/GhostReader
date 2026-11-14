@@ -362,7 +362,7 @@ private fun cachedDocumentCover(context: android.content.Context, entry: ShelfEn
     val id = "${file.absolutePath}:${file.length()}:${file.lastModified()}"
     val digest = MessageDigest.getInstance("SHA-256").digest(id.toByteArray())
         .joinToString("") { "%02x".format(it) }
-    val folder = File(context.cacheDir, "document_covers").apply { mkdirs() }
+    val folder = File(context.cacheDir, "document_covers_v2").apply { mkdirs() }
     val target = File(folder, "$digest.jpg")
     fun decode(): Bitmap? = BitmapFactory.decodeFile(target.absolutePath)
     if (target.isFile) decode()?.let { return it }
@@ -370,7 +370,7 @@ private fun cachedDocumentCover(context: android.content.Context, entry: ShelfEn
     if (image != null) {
         val temp = File(folder, "$digest.tmp")
         try {
-            temp.outputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 82, it) }
+            temp.outputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 93, it) }
             if (!temp.renameTo(target)) temp.copyTo(target, overwrite = true)
         } finally { temp.delete() }
     }
@@ -389,12 +389,11 @@ private fun comicFirstPageCover(file: File): Bitmap? = ZipFile(file).use { zip -
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     zip.getInputStream(first).use { BitmapFactory.decodeStream(it, null, bounds) }
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@use null
-    var sample = 1
-    while (bounds.outWidth / sample > 420 || bounds.outHeight / sample > 640) sample *= 2
+    val sample = sharpSampleSize(bounds.outWidth, bounds.outHeight, 540, 810)
     zip.getInputStream(first).use {
         BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
             inSampleSize = sample
-            inPreferredConfig = Bitmap.Config.RGB_565
+            inPreferredConfig = Bitmap.Config.ARGB_8888
         })
     }
 }
@@ -432,6 +431,7 @@ internal fun LibraryScreen(
     var cloudBusy by remember { mutableStateOf(false) }
     val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
     var exportCover by remember { mutableStateOf<Bitmap?>(null) }
+    var exportCoverFile by remember { mutableStateOf<File?>(null) }
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
     // "Save this one": one book, comic, PDF or audiobook plus its progress and bookmarks, checked after saving.
     var saveOneEntry by remember { mutableStateOf<ShelfEntry?>(null) }
@@ -482,13 +482,20 @@ internal fun LibraryScreen(
 
     val coverExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { uri ->
         val bitmap = exportCover
+        val originalFile = exportCoverFile
         exportCover = null
+        exportCoverFile = null
         if (uri != null && bitmap != null) {
             exportScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
                         context.contentResolver.openOutputStream(uri, "w")?.use { output ->
-                            require(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)) { "Could not encode cover" }
+                            if (originalFile != null && originalFile.isFile) {
+                                // Your chosen picture, byte for byte: no resize, no second JPEG pass.
+                                originalFile.inputStream().use { it.copyTo(output) }
+                            } else {
+                                require(bitmap.compress(Bitmap.CompressFormat.JPEG, 97, output)) { "Could not encode cover" }
+                            }
                         } ?: error("Could not open destination")
                     }
                 }
@@ -514,7 +521,7 @@ internal fun LibraryScreen(
                 val temporary = File(destination.parentFile, destination.name + ".tmp")
                 try {
                     temporary.outputStream().use {
-                        check(bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)) { "Image conversion failed" }
+                        check(bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)) { "Image conversion failed" }
                     }
                     if (!temporary.renameTo(destination)) temporary.copyTo(destination, overwrite = true)
                 } finally { temporary.delete() }
@@ -551,13 +558,7 @@ internal fun LibraryScreen(
             }
             (audios + ebooks + documents + comicEntries).map { entry ->
                 val coverFile = manualCoverFile(context, entry)
-                val chosen = if (coverFile.exists()) runCatching {
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(coverFile.absolutePath, bounds)
-                    var sample = 1
-                    while (bounds.outWidth / sample > 360 || bounds.outHeight / sample > 540) sample *= 2
-                    BitmapFactory.decodeFile(coverFile.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 })
-                }.getOrNull() else null
+                val chosen = if (coverFile.exists()) runCatching { decodeCoverFile(coverFile.absolutePath) }.getOrNull() else null
                 if (chosen != null) entry.copy(cover = chosen) else entry
             }
         }
@@ -651,6 +652,7 @@ internal fun LibraryScreen(
                                 android.widget.Toast.makeText(context, "No cover available to export", android.widget.Toast.LENGTH_LONG).show()
                             } else {
                                 exportCover = cover
+                                exportCoverFile = manualCoverFile(context, entry).takeIf { it.isFile }
                                 menuEntry = null
                                 coverExport.launch(entry.title.replace(Regex("[^a-zA-Z0-9 .,'()!-]"), "").trim() + " - cover.jpg")
                             }
