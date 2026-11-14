@@ -321,7 +321,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     ComicReader(selectedComic!!, onClose = { selectedComic = null })
    } else if (selectedAudio != null) {
     val file = selectedAudio!!
-    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
+    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply(); ShelfProgress.touchAudio(ctx.applicationContext, file.name) }, onClose = { selectedAudio = null })
    } else if (selected == null && showHome) {
     HomeSplash(onLibrary = { showHome = false; tab = 0 }, onAddBooks = { showHome = false; tab = 1 })
     BackHandler(enabled = false) {}

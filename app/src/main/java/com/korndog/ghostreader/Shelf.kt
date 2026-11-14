@@ -117,9 +117,11 @@ private val dungeonCarlOrder = listOf(
     "A Parade of Horribles"
 )
 private fun shelfOrder(entry: ShelfEntry): Pair<Int, String> {
-    val title = entry.title.lowercase().replace('’', '\'')
-    val index = dungeonCarlOrder.indexOfFirst { title == it.lowercase() || title.startsWith(it.lowercase() + ":") || title.startsWith(it.lowercase() + " ") || title.startsWith(it.lowercase() + ",") }
-    return if (index >= 0) Pair(index, "") else Pair(100, title)
+    // Compare letters and digits only, so a lost or curly apostrophe ("Butcher s") still matches.
+    fun squash(s: String) = s.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    val title = squash(entry.title)
+    val index = dungeonCarlOrder.indexOfFirst { title.startsWith(squash(it)) }
+    return if (index >= 0) Pair(index, "") else Pair(100, entry.title.lowercase())
 }
 private fun orderedShelf(entries: List<ShelfEntry>) =
     entries.sortedWith(compareBy<ShelfEntry> { shelfOrder(it).first }.thenBy { shelfOrder(it).second })
@@ -267,6 +269,17 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
     }
 }
 
+/** Player heading: "The Dungeon Anarchist's Cookbook: Dungeon Crawler Carl, Book 3" -> title + "Dungeon Crawler Carl · Book 3". */
+internal fun splitAudioTitle(rawTitle: String): Pair<String, String> {
+    val raw = rawTitle.replace(Regex("(?<=\\p{L}) s(?=\\s|$)"), "'s").replace(Regex("\\s+"), " ").trim()
+    val head = raw.substringBefore(':').trim()
+    val hasTail = ':' in raw && head.length >= 3
+    val title = (if (hasTail) head else raw).replace(Regex("(?i)[,\\s]+(?:book|vol\\.?|volume)\\s*\\d{1,3}\\s*$"), "").trim().ifBlank { raw }
+    val tail = if (hasTail) raw.substringAfter(':').trim() else Regex("(?i)(?:book|vol\\.?|volume)\\s*\\d{1,3}\\s*$").find(raw)?.value.orEmpty()
+    val sub = tail.replace(Regex("(?i)\\s*,?\\s*(book|vol\\.?|volume)\\s*(\\d{1,3})"), " · Book $2").trim(' ', '·').trim()
+    return title to sub
+}
+
 /** Dark, saturated version of a cover's average colour; neutral/white covers get the app's purple. */
 private fun richBackdrop(argb: Int): Color {
     val hsv = FloatArray(3)
@@ -319,7 +332,7 @@ internal fun tileText(entry: ShelfEntry): Pair<String, String> {
 }
 
 @Composable
-private fun EntryGrid(entries: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, onLong: (ShelfEntry) -> Unit) {
+private fun EntryGrid(entries: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, onLong: (ShelfEntry) -> Unit, header: (@Composable () -> Unit)? = null) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize(),
@@ -327,8 +340,55 @@ private fun EntryGrid(entries: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, o
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (header != null) item(key = "header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { header() }
         items(entries, key = { entryId(it) }) { entry ->
             CoverTile(entry, onOpen = { onOpen(entry) }, onLong = { onLong(entry) })
+        }
+    }
+}
+
+/** "Continue" strip: what you've started and not finished, most recent first. Read-only. */
+@Composable
+private fun ContinueRow(items: List<Pair<ShelfEntry, Float>>, onOpen: (ShelfEntry) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        Text("Continue", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.padding(bottom = 8.dp))
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(end = 16.dp)
+        ) {
+            items(items, key = { entryId(it.first) }) { (entry, fraction) -> ContinueCard(entry, fraction) { onOpen(entry) } }
+        }
+    }
+}
+
+@Composable
+private fun ContinueCard(entry: ShelfEntry, fraction: Float, onOpen: () -> Unit) {
+    val context = LocalContext.current
+    val cover by produceState<Bitmap?>(null, entryId(entry), entry.cover) {
+        value = entry.cover ?: withContext(Dispatchers.IO) { runCatching { cachedDocumentCover(context, entry) }.getOrNull() }
+    }
+    val (title, _) = remember(entry.title) { tileText(entry) }
+    val detail = if (entry.audio != null && entry.durationMs > 0) {
+        val left = (entry.durationMs * (1f - fraction)).toLong() / 60_000L
+        (if (left >= 60) "${left / 60}h ${left % 60}m left" else "${left}m left")
+    } else "${(fraction * 100).toInt()}% read"
+    Row(
+        Modifier
+            .width(236.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF1A1426))
+            .clickable(onClick = onOpen)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ShelfCover(cover, entry.title, entry.author, Modifier.size(width = 52.dp, height = 78.dp).clip(RoundedCornerShape(6.dp)), fit = entry.audio != null)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(detail, color = Color(0xFF9B8DB0), fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFF3A3050))) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(accent))
+            }
         }
     }
 }
@@ -790,7 +850,12 @@ internal fun LibraryScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-                } else EntryGrid(orderedEntries, open, long)
+                } else {
+                    val continueItems = remember(entries) {
+                        if (mediaFilter == "All" && query.isBlank()) ShelfProgress.continueList(context, entries) else emptyList()
+                    }
+                    EntryGrid(orderedEntries, open, long, header = if (continueItems.isEmpty()) null else ({ ContinueRow(continueItems, open) }))
+                }
 
                 tab == 1 -> GroupList(
                     groups = entries.groupBy { it.author.ifBlank { "Unknown author" } }

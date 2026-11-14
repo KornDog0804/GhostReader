@@ -20,8 +20,31 @@ internal object ShelfProgress {
         runCatching {
             val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             // Skip no-op writes: readers call this on every page turn.
-            if (kotlin.math.abs(prefs.getFloat(key, -1f) - value) > 0.001f) prefs.edit().putFloat(key, value).apply()
+            if (kotlin.math.abs(prefs.getFloat(key, -1f) - value) > 0.001f)
+                prefs.edit().putFloat(key, value).putLong("$key#t", System.currentTimeMillis()).apply()
         }
+    }
+
+    /** Audiobooks keep their position elsewhere; this only notes *when* it last moved. */
+    fun touchAudio(context: Context, fileName: String) {
+        runCatching { context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putLong("audio:$fileName#t", System.currentTimeMillis()).apply() }
+    }
+
+    private fun stampKey(entry: ShelfEntry): String? = when {
+        entry.audio != null -> "audio:" + entry.audio.name + "#t"
+        entry.book != null -> entry.book.progressKey + "#t"
+        entry.comic != null -> "comic:" + entry.comic.name + "#t"
+        entry.pdf != null -> "pdf:" + entry.pdf.name + "#t"
+        else -> null
+    }
+
+    /** Started-but-unfinished items, most recently moved first (items with no stamp go last). */
+    fun continueList(context: Context, entries: List<ShelfEntry>, limit: Int = 8): List<Pair<ShelfEntry, Float>> {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        return entries.mapNotNull { e ->
+            val f = fraction(context, e)
+            if (f <= 0f || f >= 0.98f) null else Triple(e, f, stampKey(e)?.let { prefs.getLong(it, 0L) } ?: 0L)
+        }.sortedByDescending { it.third }.take(limit).map { it.first to it.second }
     }
 
     fun fraction(context: Context, entry: ShelfEntry): Float {

@@ -57,6 +57,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
  val shelfMeta = remember(file.absolutePath) { runCatching { readShelfAudioMetadata(file) }.getOrNull() }
  val displayTitle = shelfMeta?.title?.takeIf { it.isNotBlank() } ?: meta.title
  val displayAuthor = shelfMeta?.author?.takeIf { it.isNotBlank() } ?: meta.author
+ val (headingTitle, headingSub) = remember(displayTitle) { splitAudioTitle(displayTitle) }
  val context = LocalContext.current
  androidx.activity.compose.BackHandler { onClose() }
  // Match the shelf's per-file manual artwork before embedded or online covers.
@@ -139,9 +140,9 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    TextButton(onClick = onClose) { Text("‹ LIBRARY", color = purple) }
    Text("NOW LISTENING", color = Color(0xFFA999C1), style = MaterialTheme.typography.labelMedium, letterSpacing = 2.sp)
   }
-  Spacer(Modifier.height(22.dp))
+  Spacer(Modifier.height(10.dp))
   Box(
-   Modifier.fillMaxWidth(0.79f).aspectRatio(1f).clip(RoundedCornerShape(22.dp)).background(Color(0xFF251933)),
+   Modifier.fillMaxWidth(0.70f).aspectRatio(1f).clip(RoundedCornerShape(22.dp)).background(Color(0xFF251933)),
    contentAlignment = Alignment.Center
   ) {
    if (coverArt != null) Image(coverArt.asImageBitmap(), contentDescription = "Audiobook cover", contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High, modifier = Modifier.fillMaxSize())
@@ -153,26 +154,35 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
     Text("AUDIOBOOK", color = Color(0xFFBCA9D5), letterSpacing = 3.sp)
    }
   }
-  Spacer(Modifier.height(25.dp))
-  Text(displayTitle, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
-  Spacer(Modifier.height(5.dp))
-  Text(displayAuthor, color = purple, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 2)
-  Spacer(Modifier.height(25.dp))
+  Spacer(Modifier.height(18.dp))
+  Text(headingTitle, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+  if (headingSub.isNotBlank()) {
+   Spacer(Modifier.height(3.dp))
+   Text(headingSub, color = Color(0xFFA999C1), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+  }
+  Spacer(Modifier.height(4.dp))
+  Text(displayAuthor, color = purple, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+  Spacer(Modifier.height(14.dp))
   if (failure != null) Text("Playback error: $failure", color = Color(0xFFFF9999))
+  val seekColors = SliderDefaults.colors(thumbColor = purple, activeTrackColor = purple, inactiveTrackColor = Color(0xFF3A3050))
+  val seekSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
   Slider(
    value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1).toFloat()),
    onValueChange = { position = it.toInt() },
    onValueChangeFinished = { player?.seekTo(position.toLong()); onProgress(position) },
    valueRange = 0f..duration.coerceAtLeast(1).toFloat(),
    enabled = player != null && duration > 0,
-   colors = SliderDefaults.colors(thumbColor = purple, activeTrackColor = purple, inactiveTrackColor = Color(0xFF3A3050)),
+   colors = seekColors,
+   interactionSource = seekSource,
+   thumb = { SliderDefaults.Thumb(interactionSource = seekSource, colors = seekColors, enabled = player != null && duration > 0, thumbSize = androidx.compose.ui.unit.DpSize(16.dp, 16.dp)) },
+   track = { state -> SliderDefaults.Track(state, colors = seekColors, enabled = player != null && duration > 0, thumbTrackGapSize = 0.dp, drawStopIndicator = null) },
    modifier = Modifier.fillMaxWidth()
   )
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
    Text(formatAudioTime(position), color = Color.LightGray)
    Text("-" + formatAudioTime((duration - position).coerceAtLeast(0)), color = Color.LightGray)
   }
-  Spacer(Modifier.height(18.dp))
+  Spacer(Modifier.height(12.dp))
   Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
    OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition - 15000L).coerceAtLeast(0).toInt(); it.seekTo(position.toLong()); onProgress(position) } }) { Text("↶ 15") }
    Button(
@@ -183,9 +193,9 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    ) { Text(if (playing) "Ⅱ" else "▶", color = Color(0xFF170D20), fontSize = 28.sp) }
    OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition + 30000L).coerceAtMost(duration.toLong()).toInt(); it.seekTo(position.toLong()); onProgress(position) } }) { Text("30 ↷") }
   }
-  Spacer(Modifier.height(24.dp))
+  Spacer(Modifier.height(14.dp))
   HorizontalDivider(color = Color(0xFF3D304B))
-  Spacer(Modifier.height(12.dp))
+  Spacer(Modifier.height(6.dp))
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
    TextButton(onClick = {
     speed = when (speed) { 0.75f -> 1f; 1f -> 1.25f; 1.25f -> 1.5f; 1.5f -> 2f; else -> 0.75f }
