@@ -206,46 +206,75 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
         }
     }
     val displayEntry = if (documentCover != null && entry.cover == null) entry.copy(cover = documentCover) else entry
+    val (shownTitle, subline) = remember(entry.title, entry.author, entry.series) { tileText(entry) }
+    // Audiobook art is square. Tint the card from the cover's own average colour so the
+    // spare space above and below looks designed instead of empty.
+    val tint = remember(displayEntry.cover) {
+        displayEntry.cover?.let { bmp ->
+            runCatching { androidx.compose.ui.graphics.Color(Bitmap.createScaledBitmap(bmp, 1, 1, true).getPixel(0, 0)) }.getOrNull()
+        }
+    }
+    val badge = when { entry.audio != null -> "🎧"; entry.comic != null -> "CBZ"; entry.pdf != null -> "PDF"; else -> null }
     Column(
         Modifier
             .clip(RoundedCornerShape(10.dp))
             .combinedClickable(onClick = onOpen, onLongClick = onLong)
             .padding(bottom = 4.dp)
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp))) {
             if (entry.audio != null && displayEntry.cover != null) {
-                // Audiobook art is square: show all of it, never cropped.
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color(0xFF14101C)), contentAlignment = Alignment.Center) {
-                    ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(4.dp)), fit = true)
+                val backdrop = tint?.let { androidx.compose.ui.graphics.lerp(Color(0xFF0E0B14), it, 0.40f) } ?: Color(0xFF14101C)
+                Box(Modifier.fillMaxSize().background(backdrop), contentAlignment = Alignment.Center) {
+                    ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f), fit = true)
                 }
             } else {
-                ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+                ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxSize())
             }
-            if (entry.comic != null) {
-                Text("CBZ", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC6D3FD0), RoundedCornerShape(4.dp)).padding(horizontal=4.dp, vertical=2.dp))
-            }
-            if (entry.pdf != null) {
-                Text("PDF", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC6D3FD0), RoundedCornerShape(4.dp)).padding(horizontal=4.dp, vertical=2.dp))
-            }
-            if (entry.audio != null) {
+            if (badge != null) {
                 Text(
-                    "🎧",
-                    fontSize = 9.sp,
+                    badge,
+                    color = Color.White,
+                    fontSize = if (entry.audio != null) 10.sp else 9.sp,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color(0xB3000000))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp)
+                        .background(Color(0xB30E0B14), RoundedCornerShape(50))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(entry.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (entry.author.isNotBlank() && !entry.author.startsWith("Unknown")) {
-            Text(entry.author, color = Color(0xFF9B8DB0), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+        Spacer(Modifier.height(7.dp))
+        // minLines keeps every tile's text block the same height so rows stay aligned.
+        Text(shownTitle, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(subline, color = Color(0xFF9B8DB0), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp))
     }
+}
+
+/**
+ * Display-only title and second line for a tile. Never used for file names or progress keys.
+ * "Carl's Doomsday Scenario: Dungeon Crawler Carl Book 2" -> "Carl's Doomsday Scenario" / "Matt Dinniman".
+ */
+internal fun tileText(entry: ShelfEntry): Pair<String, String> {
+    val raw = entry.title
+        .replace(Regex("(?<=\\p{L}) s(?=\\s|$)"), "'s") // "Butcher s Masquerade" -> "Butcher's Masquerade"
+        .replace(Regex("\\s+"), " ").trim()
+    val number = Regex("(?i)(?:book|vol\\.?|volume|#)\\s*(\\d{1,3})\\b").find(raw)?.groupValues?.get(1)
+    val head = raw.substringBefore(':').trim()
+    var title = if (':' in raw && head.length >= 3) head else raw
+    title = title.replace(Regex("(?i)[,\\s]+(?:book|vol\\.?|volume)\\s*\\d{1,3}\\s*$"), "").trim().ifBlank { raw }
+    val author = entry.author.takeIf { it.isNotBlank() && !it.startsWith("Unknown") }
+    // Skip a series/number the title already shows (e.g. comics named "Batman #12").
+    val series = entry.series.takeIf { it.isNotBlank() && !title.startsWith(it, ignoreCase = true) }
+    val numberShown = number != null && Regex("(?<!\\d)$number(?!\\d)").containsMatchIn(title)
+    val line = when {
+        author != null -> author
+        series != null && number != null && !numberShown -> "$series · Book $number"
+        series != null -> series
+        number != null && !numberShown -> "Book $number"
+        else -> ""
+    }
+    return title to line.ifBlank { " " }
 }
 
 @Composable
