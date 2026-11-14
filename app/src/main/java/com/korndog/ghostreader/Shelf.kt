@@ -40,6 +40,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -211,7 +214,7 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
     // spare space above and below looks designed instead of empty.
     val tint = remember(displayEntry.cover) {
         displayEntry.cover?.let { bmp ->
-            runCatching { androidx.compose.ui.graphics.Color(Bitmap.createScaledBitmap(bmp, 1, 1, true).getPixel(0, 0)) }.getOrNull()
+            runCatching { richBackdrop(Bitmap.createScaledBitmap(bmp, 1, 1, true).getPixel(0, 0)) }.getOrNull()
         }
     }
     val badge = when { entry.audio != null -> "🎧"; entry.comic != null -> "CBZ"; entry.pdf != null -> "PDF"; else -> null }
@@ -223,31 +226,69 @@ private fun CoverTile(entry: ShelfEntry, onOpen: () -> Unit, onLong: () -> Unit)
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp))) {
             if (entry.audio != null && displayEntry.cover != null) {
-                val backdrop = tint?.let { androidx.compose.ui.graphics.lerp(Color(0xFF0E0B14), it, 0.40f) } ?: Color(0xFF14101C)
+                val backdrop = tint ?: Color(0xFF14101C)
                 Box(Modifier.fillMaxSize().background(backdrop), contentAlignment = Alignment.Center) {
                     ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxWidth().aspectRatio(1f), fit = true)
                 }
             } else {
                 ShelfCover(displayEntry.cover, entry.title, entry.author, Modifier.fillMaxSize())
             }
-            if (badge != null) {
+            if (entry.audio != null) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp)
+                        .background(Color(0x990E0B14), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) { HeadphonesIcon(Color.White, Modifier.size(11.dp)) }
+            } else if (badge != null) {
                 Text(
                     badge,
                     color = Color.White,
-                    fontSize = if (entry.audio != null) 10.sp else 9.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(5.dp)
-                        .background(Color(0xB30E0B14), RoundedCornerShape(50))
+                        .background(Color(0x990E0B14), RoundedCornerShape(50))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
+            }
+            // Thin progress bar along the bottom edge. Read-only: shows nothing until you've started.
+            val progress = ShelfProgress.fraction(context, entry)
+            if (progress > 0f) {
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x990E0B14))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(if (progress >= 0.98f) Color(0xFF58D68D) else accent))
+                }
             }
         }
         Spacer(Modifier.height(7.dp))
         // minLines keeps every tile's text block the same height so rows stay aligned.
         Text(shownTitle, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(subline, color = Color(0xFF9B8DB0), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp))
+    }
+}
+
+/** Dark, saturated version of a cover's average colour; neutral/white covers get the app's purple. */
+private fun richBackdrop(argb: Int): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(argb, hsv)
+    if (hsv[1] < 0.15f) { hsv[0] = 265f; hsv[1] = 0.35f } else hsv[1] = hsv[1].coerceIn(0.40f, 0.75f)
+    hsv[2] = 0.22f
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+/** Small drawn headphones, so the badge never depends on emoji fonts. */
+@Composable
+private fun HeadphonesIcon(color: Color, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val stroke = w * 0.14f
+        drawArc(color, 180f, 180f, false, topLeft = androidx.compose.ui.geometry.Offset(stroke / 2, stroke / 2),
+            size = androidx.compose.ui.geometry.Size(w - stroke, h * 1.1f - stroke),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+        drawRoundRect(color, androidx.compose.ui.geometry.Offset(0f, h * 0.52f),
+            androidx.compose.ui.geometry.Size(w * 0.26f, h * 0.46f), androidx.compose.ui.geometry.CornerRadius(w * 0.08f))
+        drawRoundRect(color, androidx.compose.ui.geometry.Offset(w * 0.74f, h * 0.52f),
+            androidx.compose.ui.geometry.Size(w * 0.26f, h * 0.46f), androidx.compose.ui.geometry.CornerRadius(w * 0.08f))
     }
 }
 
@@ -585,7 +626,13 @@ internal fun LibraryScreen(
                 val title = readableDocumentTitle(file, comic = true)
                 ShelfEntry(null, null, title, "", null, 0L, seriesOf(title), comic=file)
             }
-            (audios + ebooks + documents + comicEntries).map { entry ->
+            (audios + ebooks + documents + comicEntries).let { all ->
+                // Books of one known series share an author: fill a missing one from a sibling.
+                val seriesAuthor = all.filter { shelfOrder(it).first < 100 && it.author.isNotBlank() && !it.author.startsWith("Unknown") }
+                    .groupingBy { it.author }.eachCount().maxByOrNull { it.value }?.key
+                if (seriesAuthor == null) all
+                else all.map { if (shelfOrder(it).first < 100 && (it.author.isBlank() || it.author.startsWith("Unknown"))) it.copy(author = seriesAuthor) else it }
+            }.map { entry ->
                 val coverFile = manualCoverFile(context, entry)
                 val chosen = if (coverFile.exists()) runCatching { decodeCoverFile(coverFile.absolutePath) }.getOrNull() else null
                 if (chosen != null) entry.copy(cover = chosen) else entry

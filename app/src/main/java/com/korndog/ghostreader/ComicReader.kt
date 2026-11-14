@@ -52,6 +52,7 @@ internal fun ComicReader(file:File,onClose:()->Unit) {
     }
    }
    prefs.edit().putInt(key,index).apply()
+   ShelfProgress.save(ctx.applicationContext,"comic:"+file.name,(index+1).toFloat()/names.size)
   } catch(e:Exception) { message=e.message }
  }
  BackHandler { onClose() }

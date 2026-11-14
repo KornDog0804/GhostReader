@@ -54,6 +54,7 @@ internal fun PdfReader(file:File,onClose:()->Unit) {
    }
    count=result.first;bitmap=result.second
    prefs.edit().putInt(file.name,index).apply()
+   if(count>0) ShelfProgress.save(ctx.applicationContext,"pdf:"+file.name,(index+1).toFloat()/count)
   } catch(e:Exception){message=e.message?:"Cannot render PDF"}
  }
  BackHandler { onClose() }

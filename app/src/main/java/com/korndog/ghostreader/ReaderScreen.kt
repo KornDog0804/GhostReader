@@ -145,6 +145,7 @@ internal fun ReaderScreen(
     )
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val totalChars = remember(chapters) { chapters.sumOf { it.text.length }.coerceAtLeast(1) }
     val charsBefore = remember(chapters) {
         var running = 0
@@ -259,6 +260,8 @@ internal fun ReaderScreen(
                     pageCount = starts.size
                     pageEnd = starts.getOrElse(page + 1) { Int.MAX_VALUE }
                     prefs.edit().putInt(bookKey, chapterIndex).putInt(bookKey + "_off", top).apply()
+                    ShelfProgress.save(appContext, bookKey,
+                        (charsBefore[chapterIndex] + top.coerceIn(0, chapters[chapterIndex].text.length)).toFloat() / totalChars)
                 }
 
                 fun next() {

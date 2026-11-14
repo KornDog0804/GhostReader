@@ -537,6 +537,8 @@ internal fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
   val author = field(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST)
    .ifBlank { field(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST) }
    .ifBlank { field(android.media.MediaMetadataRetriever.METADATA_KEY_AUTHOR) }
+   .ifBlank { field(android.media.MediaMetadataRetriever.METADATA_KEY_WRITER) }
+   .ifBlank { field(android.media.MediaMetadataRetriever.METADATA_KEY_COMPOSER) }
   val duration = field(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION).toLongOrNull() ?: 0L
   val cover = retriever.embeddedPicture?.takeIf { it.size in 1..5_000_000 }?.let { bytes ->
    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
