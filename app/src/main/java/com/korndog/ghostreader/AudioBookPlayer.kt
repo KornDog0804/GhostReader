@@ -51,6 +51,7 @@ private fun audioMetadata(file: File): AudioMetadata {
 }
 
 /** GhostReader listening room. Local playback with persistent position. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -> Unit, onClose: () -> Unit) {
  val meta = remember(file.absolutePath) { audioMetadata(file) }
