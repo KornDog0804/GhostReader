@@ -694,4 +694,4 @@ private fun parseEpub(file: File, sectionPrefix: String = ""): List<Chapter> = Z
  result
 }
 
-private fun scanAudioFiles(dir: File): List<File> = dir.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") }?.sortedByDescending { it.lastModified() } ?: emptyList()
+private fun scanAudioFiles(dir: File): List<File> = AudioBookTracks.scan(dir)
