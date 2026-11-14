@@ -673,8 +673,8 @@ internal fun LibraryScreen(
                 ShelfEntry(book, null, book.title, meta?.author.orEmpty(), meta?.cover, 0L, seriesOf(book.title))
             }
             val audios = audio.map { file ->
-                val info = runCatching { readShelfAudioMetadata(file) }.getOrNull()
-                val title = info?.title ?: file.nameWithoutExtension
+                val info = runCatching { readShelfAudioMetadata(AudioBookTracks.tracks(file).firstOrNull() ?: file) }.getOrNull()
+                val title = if (file.isDirectory) file.name.replace(Regex("^\\d+_"), "").replace('_', ' ') else info?.title ?: file.nameWithoutExtension
                 ShelfEntry(null, file, title, info?.author.orEmpty(), info?.cover, info?.durationMs ?: 0L, seriesOf(title))
             }
             val documents = pdfs.map { file ->
@@ -758,7 +758,7 @@ internal fun LibraryScreen(
                         menuEntry = null
                         saveOne.launch(entry.title.replace(Regex("[^a-zA-Z0-9 .,'()!-]"), "").trim().ifBlank { "GhostReader item" } + " - GhostReader.zip")
                     }) { Text("Save this one (with progress)") }
-                    if (entry.audio != null) {
+                    if (entry.audio?.isFile == true) {
                         TextButton(onClick = {
                             exportSource = entry.audio
                             menuEntry = null
