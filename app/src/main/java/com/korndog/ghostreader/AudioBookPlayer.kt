@@ -54,9 +54,11 @@ private fun audioMetadata(file: File): AudioMetadata {
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -> Unit, onClose: () -> Unit) {
- val meta = remember(file.absolutePath) { audioMetadata(file) }
- val shelfMeta = remember(file.absolutePath) { runCatching { readShelfAudioMetadata(file) }.getOrNull() }
- val displayTitle = shelfMeta?.title?.takeIf { it.isNotBlank() } ?: meta.title
+ val tracks = remember(file.absolutePath) { AudioBookTracks.tracks(file) }
+ val firstTrack = tracks.firstOrNull() ?: file
+ val meta = remember(file.absolutePath) { audioMetadata(firstTrack) }
+ val shelfMeta = remember(file.absolutePath) { runCatching { readShelfAudioMetadata(firstTrack) }.getOrNull() }
+ val displayTitle = if (file.isDirectory) file.name.replace(Regex("^\\d+_"), "").replace('_', ' ') else shelfMeta?.title?.takeIf { it.isNotBlank() } ?: meta.title
  val displayAuthor = shelfMeta?.author?.takeIf { it.isNotBlank() } ?: meta.author
  val (headingTitle, headingSub) = remember(displayTitle) { splitAudioTitle(displayTitle) }
  val context = LocalContext.current
@@ -90,14 +92,19 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    if (!disposed) {
     runCatching {
      val controller = future.get()
-     val uri = android.net.Uri.fromFile(file)
-     val sameFile = controller.currentMediaItem?.localConfiguration?.uri == uri
-     if (!sameFile) {
-      controller.setMediaItem(MediaItem.Builder().setUri(uri).setMediaMetadata(
-       MediaMetadata.Builder().setTitle(displayTitle).setArtist(displayAuthor).build()
-      ).build())
+     val uris = tracks.map { android.net.Uri.fromFile(it) }
+     val sameBook = uris.isNotEmpty() && controller.mediaItemCount == uris.size &&
+      uris.indices.all { i -> controller.getMediaItemAt(i).localConfiguration?.uri == uris[i] }
+     if (!sameBook && uris.isNotEmpty()) {
+      val items = uris.mapIndexed { i, uri ->
+       MediaItem.Builder().setUri(uri).setMediaMetadata(
+        MediaMetadata.Builder().setTitle(if (uris.size == 1) displayTitle else tracks[i].nameWithoutExtension).setArtist(displayAuthor).build()
+       ).build()
+      }
+      controller.setMediaItems(items)
       controller.prepare()
-      controller.seekTo(savedPosition.toLong().coerceAtLeast(0))
+      val savedTrack = context.getSharedPreferences("reading", 0).getInt("audio_track_" + file.name, 0).coerceIn(0, tracks.lastIndex)
+      controller.seekTo(savedTrack, savedPosition.toLong().coerceAtLeast(0))
      }
      player = controller
      duration = controller.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
@@ -114,7 +121,10 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
       position = p.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
       duration = p.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
       playing = p.isPlaying
-      if (p.isPlaying) onProgress(position)
+      if (p.isPlaying) {
+       context.getSharedPreferences("reading", 0).edit().putInt("audio_track_" + file.name, p.currentMediaItemIndex).apply()
+       onProgress(position)
+      }
       if (sleepUntil > 0 && System.currentTimeMillis() >= sleepUntil) {
        p.pause()
        playing = false
@@ -131,7 +141,10 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
   onDispose {
    disposed = true
    handler.removeCallbacks(tick)
-   runCatching { player?.let { onProgress(it.currentPosition.toInt()) } }
+   runCatching { player?.let {
+    context.getSharedPreferences("reading", 0).edit().putInt("audio_track_" + file.name, it.currentMediaItemIndex).apply()
+    onProgress(it.currentPosition.toInt())
+   } }
    MediaController.releaseFuture(future)
    player = null
   }
@@ -162,6 +175,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    Text(headingSub, color = Color(0xFFA999C1), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
   }
   Spacer(Modifier.height(4.dp))
+  if (tracks.size > 1) Text("${tracks.size} tracks • Chapter ${(player?.currentMediaItemIndex ?: 0) + 1}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
   Text(displayAuthor, color = purple, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
   Spacer(Modifier.height(14.dp))
   if (failure != null) Text("Playback error: $failure", color = Color(0xFFFF9999))
