@@ -525,6 +525,36 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
  if (error != null) AlertDialog(onDismissRequest = { error = null }, title = { Text("GhostReader") }, text = { Text(error!!) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } })
 }
 
+/** Local cover images shipped with an audiobook; never guess artwork from unrelated files. */
+internal fun companionAudioCover(file: File): android.graphics.Bitmap? {
+ val directory = if (file.isDirectory) file else file.parentFile ?: return null
+ val candidates = directory.listFiles()?.filter { candidate ->
+  candidate.isFile && candidate.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") &&
+   (candidate.nameWithoutExtension.lowercase() in setOf("cover", "folder", "front", "albumart", "artwork") ||
+    candidate.nameWithoutExtension.equals(file.nameWithoutExtension, ignoreCase = true))
+ }?.sortedWith(compareBy<File> {
+  when (it.nameWithoutExtension.lowercase()) {
+   "cover" -> 0
+   "folder" -> 1
+   "front" -> 2
+   "albumart" -> 3
+   "artwork" -> 4
+   else -> 5
+  }
+ }) ?: return null
+ for (candidate in candidates) {
+  if (candidate.length() !in 1..8_000_000) continue
+  val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+  android.graphics.BitmapFactory.decodeFile(candidate.absolutePath, bounds)
+  if (bounds.outWidth <= 0 || bounds.outHeight <= 0) continue
+  val sample = (maxOf(bounds.outWidth, bounds.outHeight) / 800).coerceAtLeast(1)
+  val bitmap = android.graphics.BitmapFactory.decodeFile(candidate.absolutePath,
+   android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+  if (bitmap != null) return bitmap
+ }
+ return null
+}
+
 internal data class ShelfAudioMetadata(val title: String, val author: String, val cover: android.graphics.Bitmap?, val durationMs: Long)
 
 internal fun formatShelfDuration(ms: Long): String {
@@ -558,9 +588,9 @@ internal fun readShelfAudioMetadata(file: File): ShelfAudioMetadata {
    val sample = (maxOf(bounds.outWidth, bounds.outHeight) / 800).coerceAtLeast(1)
    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
   }
-  ShelfAudioMetadata(title, author, cover, duration)
+  ShelfAudioMetadata(title, author, cover ?: companionAudioCover(file), duration)
  } catch (_: Exception) {
-  ShelfAudioMetadata(fallback, "", null, 0)
+  ShelfAudioMetadata(fallback, "", companionAudioCover(file), 0)
  } finally { runCatching { retriever.release() } }
 }
 
