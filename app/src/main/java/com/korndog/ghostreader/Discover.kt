@@ -80,8 +80,7 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
     TextButton(onClick = { browserError = null; browser?.loadUrl("https://audiobookbay.lu/") }) { Text("Home") }
    }
    Button(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl))) }.onFailure { browserError = "No browser available to open this page." } }, modifier = Modifier.fillMaxWidth()) { Text("Open this page in Chrome / browser") }
-   Row { Text("Website sign-in and download links may work better in your regular browser.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall) }
-   }
+   Text("Website sign-in and download links may work better in your regular browser.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
    if (browserError != null) Text(browserError!!, color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
    AndroidView(
     factory = { context -> WebView(context).apply {
