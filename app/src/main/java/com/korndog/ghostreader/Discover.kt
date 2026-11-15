@@ -32,6 +32,7 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
  var browser by remember { mutableStateOf<WebView?>(null) }
  var browserError by remember { mutableStateOf<String?>(null) }
  var browserUrl by remember { mutableStateOf("https://audiobookbay.lu/") }
+ var canGoBack by remember { mutableStateOf(false) }
  val context = LocalContext.current
  var query by remember { mutableStateOf("") }
  var category by remember { mutableStateOf("0") }
@@ -72,11 +73,14 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
   }
   if (source == "AudiobookBay") {
    Text("Website browser • Only download content you have permission to use.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-   Row {
-    TextButton(onClick = { if (browser?.canGoBack() == true) browser?.goBack() }, enabled = browser?.canGoBack() == true) { Text("Back") }
+   BackHandler(enabled = canGoBack) { browser?.goBack() }
+   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    TextButton(onClick = { browser?.goBack() }, enabled = canGoBack) { Text("Back") }
     TextButton(onClick = { browserError = null; browser?.reload() }) { Text("Refresh") }
     TextButton(onClick = { browserError = null; browser?.loadUrl("https://audiobookbay.lu/") }) { Text("Home") }
-    TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl))) } }) { Text("Open externally") }
+   }
+   Button(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl))) }.onFailure { browserError = "No browser available to open this page." } }, modifier = Modifier.fillMaxWidth()) { Text("Open this page in Chrome / browser") }
+   Row { Text("Website sign-in and download links may work better in your regular browser.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall) }
    }
    if (browserError != null) Text(browserError!!, color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
    AndroidView(
@@ -86,6 +90,10 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
      webViewClient = object : WebViewClient() {
       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
        val url = request.url
+       if (url.scheme == "magnet") {
+        onMagnet(url.toString())
+        return true
+       }
        if (url.scheme == "http" && url.host.equals("audiobookbay.lu", ignoreCase = true)) {
         view.loadUrl(url.buildUpon().scheme("https").build().toString())
         return true
@@ -96,7 +104,11 @@ internal fun DiscoverScreen(onMagnet:(String)->Unit) {
       }
       override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
        browserUrl = url
+       canGoBack = view.canGoBack()
        browserError = null
+      }
+      override fun onPageFinished(view: WebView, url: String) {
+       canGoBack = view.canGoBack()
       }
       override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
        if (request.isForMainFrame) browserError = "Page could not load: ${error.description}. Try Open externally."
