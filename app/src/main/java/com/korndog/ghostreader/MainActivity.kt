@@ -143,6 +143,16 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    return
   }
   torrentBusy = true
+  val appContext = ctx.applicationContext
+  fun sendDownloadService(action: String, status: String? = null) {
+   val intent = android.content.Intent(appContext, GhostDownloadService::class.java).setAction(action)
+   if (status != null) intent.putExtra(GhostDownloadService.EXTRA_STATUS, status)
+   runCatching {
+    if (action == GhostDownloadService.ACTION_START) androidx.core.content.ContextCompat.startForegroundService(appContext, intent)
+    else appContext.startService(intent)
+   }
+  }
+  sendDownloadService(GhostDownloadService.ACTION_START)
   val engine = BookTorrentEngine(ctx.applicationContext)
   torrentEngine = engine
   torrentWorker.execute {
@@ -150,19 +160,20 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
    try {
     if (magnetMode == "audio") {
      val audioDir = File(ctx.filesDir, "audio").apply { mkdirs() }
-     downloaded = engine.downloadAudio(magnet.trim(), audioDir, { status -> uiHandler.post { torrentStatus = status } }, { options ->
+     downloaded = engine.downloadAudio(magnet.trim(), audioDir, { status -> uiHandler.post { torrentStatus = status }; sendDownloadService(GhostDownloadService.ACTION_PROGRESS, status) }, { options ->
       val selection = java.util.concurrent.CompletableFuture<Int>()
       uiHandler.post { audioChoices = options; audioSelection = selection }
       try { selection.get(10, java.util.concurrent.TimeUnit.MINUTES) } finally { uiHandler.post { audioSelection = null; audioChoices = emptyList() } }
      })
     } else if (magnetMode == "comic") {
      val comicDir = File(ctx.filesDir, "comics").apply { mkdirs() }
-     downloaded = engine.downloadComic(magnet.trim(), comicDir) { status -> uiHandler.post { torrentStatus = status } }
+     downloaded = engine.downloadComic(magnet.trim(), comicDir) { status -> uiHandler.post { torrentStatus = status }; sendDownloadService(GhostDownloadService.ACTION_PROGRESS, status) }
      validateComic(downloaded!!)
     } else {
-     downloaded = engine.download(magnet.trim(), shelf) { status -> uiHandler.post { torrentStatus = status } }
+     downloaded = engine.download(magnet.trim(), shelf) { status -> uiHandler.post { torrentStatus = status }; sendDownloadService(GhostDownloadService.ACTION_PROGRESS, status) }
      parseEpub(downloaded!!)
     }
+    sendDownloadService(GhostDownloadService.ACTION_STOP)
     uiHandler.post {
      books = scanBooks(shelf)
      comics = scanComics(File(ctx.filesDir, "comics"))
@@ -172,6 +183,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
      torrentEngine = null
     }
    } catch (e: Exception) {
+    sendDownloadService(GhostDownloadService.ACTION_STOP)
     downloaded?.delete()
     uiHandler.post {
      error = e.message ?: "Torrent download failed"
