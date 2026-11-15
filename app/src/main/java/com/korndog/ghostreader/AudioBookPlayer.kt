@@ -78,6 +78,8 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
  val coverArt = manualCover ?: shelfMeta?.cover ?: meta.cover ?: fetchedCover
  var player by remember(file.absolutePath) { mutableStateOf<MediaController?>(null) }
  var playing by remember(file.absolutePath) { mutableStateOf(false) }
+ var currentTrack by remember(file.absolutePath) { mutableIntStateOf(0) }
+ var chapterPickerOpen by remember(file.absolutePath) { mutableStateOf(false) }
  var position by remember(file.absolutePath) { mutableIntStateOf(savedPosition) }
  var duration by remember(file.absolutePath) { mutableIntStateOf(0) }
  var failure by remember(file.absolutePath) { mutableStateOf<String?>(null) }
@@ -110,6 +112,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
      duration = controller.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
      position = controller.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
      playing = controller.isPlaying
+     currentTrack = controller.currentMediaItemIndex.coerceAtLeast(0)
     }.onFailure { failure = it.message ?: "Cannot connect to audio service" }
    }
   }, ContextCompat.getMainExecutor(context))
@@ -121,6 +124,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
       position = p.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
       duration = p.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
       playing = p.isPlaying
+      currentTrack = p.currentMediaItemIndex.coerceAtLeast(0)
       if (p.isPlaying) {
        context.getSharedPreferences("reading", 0).edit().putInt("audio_track_" + file.name, p.currentMediaItemIndex).apply()
        onProgress(position)
@@ -175,7 +179,7 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    Text(headingSub, color = Color(0xFFA999C1), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
   }
   Spacer(Modifier.height(4.dp))
-  if (tracks.size > 1) Text("${tracks.size} tracks • Chapter ${(player?.currentMediaItemIndex ?: 0) + 1}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+  if (tracks.size > 1) Text("${tracks.size} tracks • Chapter ${currentTrack + 1}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
   Text(displayAuthor, color = purple, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
   Spacer(Modifier.height(14.dp))
   if (failure != null) Text("Playback error: $failure", color = Color(0xFFFF9999))
@@ -209,6 +213,38 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
    OutlinedButton(enabled = player != null, onClick = { player?.let { position = (it.currentPosition + 30000L).coerceAtMost(duration.toLong()).toInt(); it.seekTo(position.toLong()); onProgress(position) } }) { Text("30 ↷") }
   }
   Spacer(Modifier.height(14.dp))
+  if (tracks.size > 1) {
+   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+    OutlinedButton(enabled = player != null && currentTrack > 0, onClick = {
+     player?.let { it.seekTo((currentTrack - 1).coerceAtLeast(0), 0L); currentTrack = it.currentMediaItemIndex; position = 0; onProgress(0) }
+    }) { Text("‹ Previous") }
+    TextButton(onClick = { chapterPickerOpen = true }) { Text("Chapters ▾", color = purple) }
+    OutlinedButton(enabled = player != null && currentTrack < tracks.lastIndex, onClick = {
+     player?.let { it.seekTo((currentTrack + 1).coerceAtMost(tracks.lastIndex), 0L); currentTrack = it.currentMediaItemIndex; position = 0; onProgress(0) }
+    }) { Text("Next ›") }
+   }
+   if (chapterPickerOpen) AlertDialog(
+    onDismissRequest = { chapterPickerOpen = false },
+    title = { Text("Choose a chapter") },
+    text = {
+     Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+      tracks.forEachIndexed { index, track ->
+       TextButton(onClick = {
+        player?.seekTo(index, 0L)
+        currentTrack = index
+        position = 0
+        context.getSharedPreferences("reading", 0).edit().putInt("audio_track_" + file.name, index).apply()
+        onProgress(0)
+        chapterPickerOpen = false
+       }, modifier = Modifier.fillMaxWidth()) {
+        Text("Chapter ${index + 1}: ${track.nameWithoutExtension}", maxLines = 2)
+       }
+      }
+     }
+    },
+    confirmButton = { TextButton(onClick = { chapterPickerOpen = false }) { Text("Close") } }
+   )
+  }
   HorizontalDivider(color = Color(0xFF3D304B))
   Spacer(Modifier.height(6.dp))
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
