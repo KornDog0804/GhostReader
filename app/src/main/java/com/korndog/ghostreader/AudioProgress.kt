@@ -34,7 +34,8 @@ internal object AudioProgress {
                     state.put(key(hash), JSONObject().put("t", mine.positionMs / 1000.0).put("d", d).put("ts", mine.ts))
                     changed = true
                 }
-                theirs != null && theirTs > mine.ts && theirs.has("t") ->
+                // Same save time but a different place means this phone's copy drifted (an old build once zeroed it): trust the cloud.
+                theirs != null && theirs.has("t") && (theirTs > mine.ts || (theirTs == mine.ts && Math.abs(theirs.getDouble("t") * 1000 - mine.positionMs) > 2000)) ->
                     pulls[hash] = AudioSpot((theirs.getDouble("t") * 1000).toLong().coerceAtLeast(0), (theirs.optDouble("d", 0.0) * 1000).toLong(), theirTs)
             }
         }

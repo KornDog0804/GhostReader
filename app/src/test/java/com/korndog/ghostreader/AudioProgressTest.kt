@@ -47,4 +47,13 @@ class AudioProgressTest {
         assertFalse(AudioProgress.isLegacy(AudioSpot(0, 0, 0)))
         assertFalse(AudioProgress.isLegacy(AudioSpot(300_000, 0, 5)))
     }
+
+    @Test fun sameTimeButDifferentPlaceTrustsTheCloud() {
+        val st = JSONObject("""{"a|$h":{"t":18978,"d":60000,"ts":300}}""")
+        val m = AudioProgress.merge(st, mapOf(h to AudioSpot(0, 0, 300)))
+        assertFalse(m.changed)
+        assertEquals(18_978_000L, m.pulls.getValue(h).positionMs)
+        // A tie with the same place changes nothing.
+        assertTrue(AudioProgress.merge(st, mapOf(h to AudioSpot(18_978_500, 0, 300))).pulls.isEmpty())
+    }
 }
