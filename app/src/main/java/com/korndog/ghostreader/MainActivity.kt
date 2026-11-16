@@ -328,7 +328,7 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
         // Fetch the newest spot (from the TV) first, but never make the player wait more than 3 seconds for it.
         Thread {
          var note = ""
-         val t = Thread { note = runCatching { CloudSync.syncAudioProgress(ctx, pull = true).message }.getOrElse { "Progress sync problem: " + (it.message ?: "unknown") } }.also { it.start() }
+         val t = Thread { note = runCatching { CloudSync.syncAudioProgress(ctx, pull = true, focus = f).message }.getOrElse { "Progress sync problem: " + (it.message ?: "unknown") } }.also { it.start() }
          t.join(3000)
          uiHandler.post { if (note.isNotBlank()) android.widget.Toast.makeText(ctx, note, android.widget.Toast.LENGTH_LONG).show(); selectedAudio = f }
         }.start()

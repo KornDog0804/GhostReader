@@ -271,7 +271,7 @@ internal object CloudSync {
      * Blocking; run on a background thread. A local file is matched to its cloud book by name and size (or by the book id
      * this phone made when it uploaded it). A failed read never causes a write.
      */
-    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap()): AudioSyncReport = synchronized(audioLock) {
+    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap(), focus: File? = null): AudioSyncReport = synchronized(audioLock) {
         val base = url(context); val token = key(context)
         if (!base.startsWith("https://") || token.isBlank()) return AudioSyncReport(0, 0, "Progress sync is off: set the sync address and key in Settings")
         val remote = Remote(base, token)
@@ -288,6 +288,18 @@ internal object CloudSync {
         byHash.values.forEach { AudioProgress.stampLegacy(context, it) }
         val local = byHash.mapValues { (_, f) -> AudioProgress.localSpot(context, f).let { it.copy(durationMs = durationMs[f.name] ?: 0L) } }
         val state = JSONObject(remote.getStateStrict())
+        // What the cloud and this phone each hold for the book being opened, so a mismatch can be read straight off the screen.
+        val detail = focus?.let { f ->
+            val h = byHash.entries.firstOrNull { it.value == f }?.key
+            if (h == null) " [this book is not matched]" else {
+                fun clock(ms: Long): String { val t = ms / 1000; return "%d:%02d:%02d".format(t / 3600, t / 60 % 60, t % 60) }
+                fun at(ts: Long) = if (ts <= 0) "never" else java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale.US).format(java.util.Date(ts))
+                val c = state.optJSONObject(AudioProgress.key(h))
+                val mine = local.getValue(h)
+                " [cloud: " + (if (c == null) "nothing saved" else clock((c.optDouble("t", 0.0) * 1000).toLong()) + " at " + at(c.optLong("ts", 0L))) +
+                    " | phone: " + clock(mine.positionMs) + " at " + at(mine.ts) + "]"
+            }
+        } ?: ""
         val m = AudioProgress.merge(state, local)
         if (m.changed) retry { remote.putBytes("state.json", m.state.toString().toByteArray(), "application/json") }
         var pulled = 0
@@ -297,7 +309,7 @@ internal object CloudSync {
             m.changed -> "Progress sync: sent this phone's spot to the cloud"
             else -> "Progress sync: matched ${byHash.size} book(s), nothing newer in the cloud"
         }
-        AudioSyncReport(pulled, byHash.size, note)
+        AudioSyncReport(pulled, byHash.size, note + detail)
     }
 
     /**
