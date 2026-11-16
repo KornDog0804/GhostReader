@@ -260,6 +260,7 @@ internal object CloudSync {
         val inCloud = remote.list("m/").map { it.removePrefix("m/").removeSuffix(".json") }.toSet()
         val byHash = files.associateBy { audioHash(it) }.filterKeys { it in inCloud }
         if (byHash.isEmpty()) return 0
+        byHash.values.forEach { AudioProgress.stampLegacy(context, it) }
         val local = byHash.mapValues { (h, f) -> AudioProgress.localSpot(context, f).let { it.copy(durationMs = durationMs[f.name] ?: 0L) } }
         val state = JSONObject(remote.getStateStrict())
         val m = AudioProgress.merge(state, local)

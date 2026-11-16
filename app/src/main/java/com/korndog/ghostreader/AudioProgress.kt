@@ -59,6 +59,16 @@ internal object AudioProgress {
         e.apply()
     }
 
+    /** A spot saved by an older app version has a position but no "saved at" time. */
+    fun isLegacy(spot: AudioSpot) = spot.ts == 0L && spot.positionMs > 0L
+
+    /** Gives a legacy spot a time of now, so the place you were at on this phone is never overwritten by an older cloud value. */
+    fun stampLegacy(context: Context, file: File) {
+        val prefs = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
+        if (prefs.getLong("audiots_" + file.name, 0L) == 0L && prefs.getInt("audio_" + file.name, 0) > 0)
+            prefs.edit().putLong("audiots_" + file.name, System.currentTimeMillis()).apply()
+    }
+
     fun localSpot(context: Context, file: File): AudioSpot {
         val prefs = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
         return AudioSpot(prefs.getInt("audio_" + file.name, 0).toLong(), 0L, prefs.getLong("audiots_" + file.name, 0L))

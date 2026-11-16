@@ -41,4 +41,10 @@ class AudioProgressTest {
         val m = AudioProgress.merge(st, mapOf(h to AudioSpot(5000, 0, 999)))
         assertFalse(m.changed); assertFalse(m.state.has("a|$h"))
     }
+
+    @Test fun oldSpotWithNoTimeIsLegacy() {
+        assertTrue(AudioProgress.isLegacy(AudioSpot(300_000, 0, 0)))
+        assertFalse(AudioProgress.isLegacy(AudioSpot(0, 0, 0)))
+        assertFalse(AudioProgress.isLegacy(AudioSpot(300_000, 0, 5)))
+    }
 }
