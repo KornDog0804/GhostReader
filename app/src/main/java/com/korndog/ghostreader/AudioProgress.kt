@@ -13,7 +13,7 @@ internal data class AudioSpot(val positionMs: Long, val durationMs: Long, val ts
  * The newest timestamp wins. Only "a|" keys for books this phone has are ever touched.
  */
 internal object AudioProgress {
-    private const val MIN_STAMP_MOVE_MS = 2000L
+    private const val MIN_STAMP_MOVE_MS = 500L // playing moves the place every second, so the saved-at time must follow small moves too
 
     fun key(hash: String) = "a|$hash"
 

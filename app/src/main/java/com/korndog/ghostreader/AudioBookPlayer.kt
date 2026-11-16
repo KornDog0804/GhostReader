@@ -101,6 +101,10 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
       // just picked up from the other device. Jump to the saved spot instead of ignoring it. A book that is playing is left alone.
       controller.seekTo(savedPosition.toLong().coerceAtLeast(0))
      }
+     // The player can report an old place for a moment after connecting, so check once more and jump to the saved spot.
+     Handler(Looper.getMainLooper()).postDelayed({
+      runCatching { if (!disposed && !controller.isPlaying && Math.abs(controller.currentPosition - savedPosition) > 2000) controller.seekTo(savedPosition.toLong().coerceAtLeast(0)) }
+     }, 1500)
      player = controller
      duration = controller.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
      position = controller.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()

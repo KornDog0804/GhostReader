@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
@@ -399,6 +400,33 @@ private fun comicFirstPageCover(file: File): Bitmap? = ZipFile(file).use { zip -
     }
 }
 
+/** Audiobooks with a saved spot, most recently listened first, so you can pick up where you left off. */
+@Composable
+private fun ContinueRow(entries: List<ShelfEntry>, onOpen: (ShelfEntry) -> Unit, accent: Color) {
+    val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("reading", android.content.Context.MODE_PRIVATE)
+    val resumable = entries.filter { it.audio != null }
+        .map { it to prefs.getInt("audio_" + it.audio!!.name, 0) }
+        .filter { it.second > 10_000 }
+        .sortedByDescending { prefs.getLong("audiots_" + it.first.audio!!.name, 0L) }
+        .take(4)
+    if (resumable.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text("Continue listening", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            resumable.forEach { (entry, pos) ->
+                val t = pos / 1000
+                Column(
+                    Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF1B1530)).clickable { onOpen(entry) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 230.dp)
+                ) {
+                    Text(entry.title, color = Color.White, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                    Text("%d:%02d:%02d in".format(t / 3600, t / 60 % 60, t % 60), color = accent)
+                }
+            }
+        }
+    }
+}
+
 /** My Library: cover tiles with Books, Authors and Series tabs, and search. */
 @Composable
 internal fun LibraryScreen(
@@ -664,6 +692,7 @@ internal fun LibraryScreen(
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             listOf("All","Read","Audio","Comics","Image Books").forEach { kind -> FilterChip(selected=mediaFilter==kind,onClick={mediaFilter=kind},label={Text(kind)}) }
         }
+        if (!searching && tab == 0 && (mediaFilter == "All" || mediaFilter == "Audio")) ContinueRow(entries, open, accent)
         if(mediaFilter!="Image Books") TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = accent) {
             listOf("Books", "Authors", "Series").forEachIndexed { index, label ->
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label, fontWeight = FontWeight.SemiBold) })
