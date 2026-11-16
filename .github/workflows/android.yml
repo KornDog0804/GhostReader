@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -25,21 +25,12 @@ jobs:
         with:
           name: ghostreader-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-      - name: Publish test build (feature branches only)
-        if: ${{ github.ref != 'refs/heads/main' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk GhostReader-test.apk
-          sha256sum GhostReader-test.apk > SHA256SUMS.txt
-          gh release delete feature-test-latest --yes --cleanup-tag || true
-          gh release create feature-test-latest GhostReader-test.apk SHA256SUMS.txt --prerelease --target "$GITHUB_SHA" --title "Feature test build" --notes "Built from $GITHUB_REF_NAME at $GITHUB_SHA. Debug build for testing."
 
   signed-release:
-    if: ${{ vars.GHOSTREADER_SIGNING_READY == 'true' && github.ref == 'refs/heads/main' }}
+    if: ${{ vars.GHOSTREADER_SIGNING_READY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -66,3 +57,12 @@ jobs:
         with:
           name: ghostreader-signed-release-apk
           path: app/build/outputs/apk/release/app-release.apk
+      - name: Publish signed test build (feature branches only)
+        if: ${{ github.ref != 'refs/heads/main' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk GhostReader-signed.apk
+          sha256sum GhostReader-signed.apk > SHA256SUMS.txt
+          gh release delete feature-test-latest --yes --cleanup-tag || true
+          gh release create feature-test-latest GhostReader-signed.apk SHA256SUMS.txt --prerelease --target "$GITHUB_SHA" --title "Feature test build (signed)" --notes "Signed release build from $GITHUB_REF_NAME at $GITHUB_SHA."
