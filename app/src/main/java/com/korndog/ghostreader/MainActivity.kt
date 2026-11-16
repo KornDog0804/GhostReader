@@ -327,10 +327,17 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        onOpenAudio = { f ->
         // Fetch the newest spot (from the TV) first, but never make the player wait more than 3 seconds for it.
         Thread {
-         var note = ""
-         val t = Thread { note = runCatching { CloudSync.syncAudioProgress(ctx, pull = true, focus = f).message }.getOrElse { "Progress sync problem: " + (it.message ?: "unknown") } }.also { it.start() }
+         var report: CloudSync.AudioSyncReport? = null
+         var err = ""
+         val t = Thread { try { report = CloudSync.syncAudioProgress(ctx, pull = true, focus = f) } catch (e: Exception) { err = "Progress sync problem: " + (e.message ?: "unknown") } }.also { it.start() }
          t.join(3000)
-         uiHandler.post { if (note.isNotBlank()) android.widget.Toast.makeText(ctx, note, android.widget.Toast.LENGTH_LONG).show(); selectedAudio = f }
+         val note = report?.message ?: err.ifBlank { "Progress sync is still working..." }
+         val more = (report?.detail.orEmpty() + " last send: " + CloudSync.lastAudioSend(ctx)).trim()
+         uiHandler.post {
+          android.widget.Toast.makeText(ctx, note, android.widget.Toast.LENGTH_LONG).show()
+          android.widget.Toast.makeText(ctx, more, android.widget.Toast.LENGTH_LONG).show()
+          selectedAudio = f
+         }
         }.start()
        },
        onDeleteAudio = { deleteAudioCandidate = it },

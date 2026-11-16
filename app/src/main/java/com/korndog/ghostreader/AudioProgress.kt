@@ -46,16 +46,18 @@ internal object AudioProgress {
     /**
      * Records this phone's position for a file. The spot only gets a new "saved at" time when it really moved,
      * so just having the app open never overrides a newer spot from the TV. A jump back to the very start from far
-     * into the book is stored locally but not stamped, so a player that starts before it has seeked cannot erase your place.
+     * into the book is ignored entirely, so a player that starts before it has seeked cannot erase your place
+     * (to restart a book on purpose, seek to a few seconds in).
      */
     fun record(context: Context, filename: String, positionMs: Long) {
         if (filename.isBlank()) return
         val prefs = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
         val old = prefs.getInt("audio_$filename", 0).toLong()
         val pos = positionMs.coerceIn(0, Int.MAX_VALUE.toLong())
+        // A player that has just been created reports 0:00 before it has jumped to your place. Never let that erase a real spot.
+        if (pos < 3000 && old > 10_000) return
         val e = prefs.edit().putInt("audio_$filename", pos.toInt())
-        val suspicious = pos < 3000 && old > 10_000
-        if (!suspicious && Math.abs(pos - old) >= MIN_STAMP_MOVE_MS) e.putLong("audiots_$filename", System.currentTimeMillis())
+        if (Math.abs(pos - old) >= MIN_STAMP_MOVE_MS) e.putLong("audiots_$filename", System.currentTimeMillis())
         e.apply()
     }
 

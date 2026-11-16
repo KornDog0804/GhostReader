@@ -247,7 +247,7 @@ internal object CloudSync {
 
     private val audioLock = Any()
 
-    class AudioSyncReport(val pulled: Int, val matched: Int, val message: String)
+    class AudioSyncReport(val pulled: Int, val matched: Int, val message: String, val detail: String = "")
 
     /** Audio books in the cloud as hash -> (file name, size), read from their small meta files and remembered on the phone. */
     private fun audioMetaIndex(context: Context, remote: Remote, inCloud: Set<String>): Map<String, Pair<String, Long>> {
@@ -271,7 +271,19 @@ internal object CloudSync {
      * Blocking; run on a background thread. A local file is matched to its cloud book by name and size (or by the book id
      * this phone made when it uploaded it). A failed read never causes a write.
      */
-    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap(), focus: File? = null): AudioSyncReport = synchronized(audioLock) {
+    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap(), focus: File? = null): AudioSyncReport {
+        val r = try { syncAudioProgressInner(context, pull, durationMs, focus) } catch (e: Exception) {
+            AudioSyncReport(0, 0, "Progress sync problem: " + (e.message ?: e.javaClass.simpleName))
+        }
+        // Remember the last result (also for background sends) so the next time a book is opened it can be shown.
+        val clock = java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale.US).format(java.util.Date())
+        context.getSharedPreferences("cloudsync", 0).edit().putString(if (pull) "audio_last_open" else "audio_last_send", clock + " - " + r.message).apply()
+        return r
+    }
+
+    fun lastAudioSend(context: Context): String = context.getSharedPreferences("cloudsync", 0).getString("audio_last_send", null) ?: "none yet"
+
+    private fun syncAudioProgressInner(context: Context, pull: Boolean, durationMs: Map<String, Long>, focus: File?): AudioSyncReport = synchronized(audioLock) {
         val base = url(context); val token = key(context)
         if (!base.startsWith("https://") || token.isBlank()) return AudioSyncReport(0, 0, "Progress sync is off: set the sync address and key in Settings")
         val remote = Remote(base, token)
@@ -296,7 +308,7 @@ internal object CloudSync {
                 fun at(ts: Long) = if (ts <= 0) "never" else java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale.US).format(java.util.Date(ts))
                 val c = state.optJSONObject(AudioProgress.key(h))
                 val mine = local.getValue(h)
-                " [cloud: " + (if (c == null) "nothing saved" else clock((c.optDouble("t", 0.0) * 1000).toLong()) + " at " + at(c.optLong("ts", 0L))) +
+                (if (state.has("x|$h")) "[CLOUD HAS A DELETED MARKER FOR THIS BOOK - progress is ignored] " else "") + " [cloud: " + (if (c == null) "nothing saved" else clock((c.optDouble("t", 0.0) * 1000).toLong()) + " at " + at(c.optLong("ts", 0L))) +
                     " | phone: " + clock(mine.positionMs) + " at " + at(mine.ts) + "]"
             }
         } ?: ""
@@ -309,7 +321,7 @@ internal object CloudSync {
             m.changed -> "Progress sync: sent this phone's spot to the cloud"
             else -> "Progress sync: matched ${byHash.size} book(s), nothing newer in the cloud"
         }
-        AudioSyncReport(pulled, byHash.size, note + detail)
+        AudioSyncReport(pulled, byHash.size, note, detail.trim())
     }
 
     /**
