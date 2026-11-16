@@ -327,11 +327,13 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        onOpenAudio = { f ->
         // Fetch the newest spot (from the TV) first, but never make the player wait more than 3 seconds for it.
         Thread {
-         val t = Thread { runCatching { CloudSync.syncAudioProgress(ctx, pull = true) } }.also { it.start() }
+         var note = ""
+         val t = Thread { note = runCatching { CloudSync.syncAudioProgress(ctx, pull = true).message }.getOrElse { "Progress sync problem: " + (it.message ?: "unknown") } }.also { it.start() }
          t.join(3000)
-         uiHandler.post { selectedAudio = f }
+         uiHandler.post { if (note.isNotBlank()) android.widget.Toast.makeText(ctx, note, android.widget.Toast.LENGTH_LONG).show(); selectedAudio = f }
         }.start()
-       }, onDeleteAudio = { deleteAudioCandidate = it },
+       },
+       onDeleteAudio = { deleteAudioCandidate = it },
        onOpenPdf = { selectedPdf = it },
        onDeletePdf = { file -> if(file.delete()) pdfFiles=scanPdfs(File(ctx.filesDir,"pdfs")) else error="Could not delete PDF" }
       ) }

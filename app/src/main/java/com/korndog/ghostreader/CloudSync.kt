@@ -247,27 +247,57 @@ internal object CloudSync {
 
     private val audioLock = Any()
 
+    class AudioSyncReport(val pulled: Int, val matched: Int, val message: String)
+
+    /** Audio books in the cloud as hash -> (file name, size), read from their small meta files and remembered on the phone. */
+    private fun audioMetaIndex(context: Context, remote: Remote, inCloud: Set<String>): Map<String, Pair<String, Long>> {
+        val prefs = context.getSharedPreferences("cloudsync", 0)
+        val audio = HashMap<String, Pair<String, Long>>()
+        prefs.getStringSet("audiometa", emptySet())!!.forEach { r -> val a = r.split('\t'); if (a.size == 3) audio[a[0]] = a[1] to (a[2].toLongOrNull() ?: -1L) }
+        val other = prefs.getStringSet("othermeta", emptySet())!!.toMutableSet()
+        var fetched = 0
+        for (h in inCloud) {
+            if (h in audio || h in other || fetched >= 80) continue
+            fetched++
+            val meta = runCatching { JSONObject(remote.getText("m/$h.json") ?: "") }.getOrNull() ?: continue
+            if (meta.optString("store") == "audio") audio[h] = meta.optString("name") to meta.optLong("size", -1L) else other += h
+        }
+        if (fetched > 0) prefs.edit().putStringSet("audiometa", audio.map { "${it.key}\t${it.value.first}\t${it.value.second}" }.toSet()).putStringSet("othermeta", other).apply()
+        return audio
+    }
+
     /**
      * Brings audiobook spots in line with the cloud: newest wins. With [pull] false (used while playing) it only sends.
-     * Blocking; run on a background thread. Returns how many spots were pulled to this phone.
-     * Only books already uploaded to the cloud take part, and a failed read never causes a write.
+     * Blocking; run on a background thread. A local file is matched to its cloud book by name and size (or by the book id
+     * this phone made when it uploaded it). A failed read never causes a write.
      */
-    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap()): Int = synchronized(audioLock) {
+    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap()): AudioSyncReport = synchronized(audioLock) {
         val base = url(context); val token = key(context)
-        if (!base.startsWith("https://") || token.isBlank()) return 0
+        if (!base.startsWith("https://") || token.isBlank()) return AudioSyncReport(0, 0, "Progress sync is off: set the sync address and key in Settings")
         val remote = Remote(base, token)
-        val files = File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: return 0
+        val files = File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: return AudioSyncReport(0, 0, "No audiobooks on this phone")
         val inCloud = remote.list("m/").map { it.removePrefix("m/").removeSuffix(".json") }.toSet()
-        val byHash = files.associateBy { audioHash(it) }.filterKeys { it in inCloud }
-        if (byHash.isEmpty()) return 0
+        val meta = audioMetaIndex(context, remote, inCloud)
+        val byHash = HashMap<String, File>()
+        for (f in files) {
+            val own = audioHash(f)
+            val h = if (own in inCloud) own else meta.entries.firstOrNull { it.value.first == cleanName(f) && it.value.second == f.length() }?.key
+            if (h != null) byHash[h] = f
+        }
+        if (byHash.isEmpty()) return AudioSyncReport(0, 0, "Progress sync: none of your audiobooks match a book in the cloud")
         byHash.values.forEach { AudioProgress.stampLegacy(context, it) }
-        val local = byHash.mapValues { (h, f) -> AudioProgress.localSpot(context, f).let { it.copy(durationMs = durationMs[f.name] ?: 0L) } }
+        val local = byHash.mapValues { (_, f) -> AudioProgress.localSpot(context, f).let { it.copy(durationMs = durationMs[f.name] ?: 0L) } }
         val state = JSONObject(remote.getStateStrict())
         val m = AudioProgress.merge(state, local)
         if (m.changed) retry { remote.putBytes("state.json", m.state.toString().toByteArray(), "application/json") }
         var pulled = 0
         if (pull) for ((h, spot) in m.pulls) { byHash[h]?.let { AudioProgress.applyPull(context, it, spot); pulled++ } }
-        pulled
+        val note = when {
+            pulled > 0 -> "Picked up your spot from your other device"
+            m.changed -> "Progress sync: sent this phone's spot to the cloud"
+            else -> "Progress sync: matched ${byHash.size} book(s), nothing newer in the cloud"
+        }
+        AudioSyncReport(pulled, byHash.size, note)
     }
 
     /**
