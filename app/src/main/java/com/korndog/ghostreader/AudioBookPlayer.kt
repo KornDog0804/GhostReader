@@ -96,6 +96,10 @@ internal fun AudioBookPlayer(file: File, savedPosition: Int, onProgress: (Int) -
       ).build())
       controller.prepare()
       controller.seekTo(savedPosition.toLong().coerceAtLeast(0))
+     } else if (!controller.isPlaying && Math.abs(controller.currentPosition - savedPosition) > 2000) {
+      // The audio service already holds this book (paused) at a different place, for example 0:00 while a newer spot was
+      // just picked up from the other device. Jump to the saved spot instead of ignoring it. A book that is playing is left alone.
+      controller.seekTo(savedPosition.toLong().coerceAtLeast(0))
      }
      player = controller
      duration = controller.duration.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
