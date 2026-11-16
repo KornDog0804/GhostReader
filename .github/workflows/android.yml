@@ -1,7 +1,7 @@
 name: Android debug APK
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
   workflow_dispatch:
 jobs:
   build:
@@ -17,6 +17,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
@@ -25,7 +27,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
   signed-release:
-    if: ${{ vars.GHOSTREADER_SIGNING_READY == 'true' }}
+    if: ${{ vars.GHOSTREADER_SIGNING_READY == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

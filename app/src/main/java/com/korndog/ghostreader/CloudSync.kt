@@ -10,8 +10,8 @@ import java.security.MessageDigest
 
 /**
  * Two-way sync of ebooks, PDFs and CBZ comics through the user's own Cloudflare Worker (R2),
- * using the same format as the GhostReader website. Audiobooks stay on each device.
- * Nothing local is ever deleted or renamed; reading progress is not synced from here.
+ * using the same format as the GhostReader website. Audiobook files stay on each device, but where you are in each one is shared.
+ * Nothing local is ever deleted or renamed.
  */
 internal object CloudSync {
     private const val MAX_FILE = 95L * 1024 * 1024
@@ -72,6 +72,15 @@ internal object CloudSync {
         fun getText(key: String): String? {
             val c = open("/o/" + URLEncoder.encode(key, "UTF-8"), "GET"); check(c)
             return if (c.responseCode in 200..299) c.inputStream.bufferedReader().readText() else null
+        }
+        /** state.json as text; "{}" only when it truly does not exist yet. Any other failure throws, so it is never overwritten blind. */
+        fun getStateStrict(): String {
+            val c = open("/o/state.json", "GET"); check(c)
+            return when (c.responseCode) {
+                404 -> "{}"
+                in 200..299 -> c.inputStream.bufferedReader().readText()
+                else -> throw IllegalStateException("Could not read progress (" + c.responseCode + ")")
+            }
         }
         fun getFile(key: String, target: File) {
             val c = open("/o/" + URLEncoder.encode(key, "UTF-8"), "GET"); check(c)
@@ -232,6 +241,33 @@ internal object CloudSync {
     }
 
     private const val PART = 50L * 1024 * 1024
+
+    /** The cloud book id of an audiobook file on this phone (same formula sendAudiobook uses). */
+    fun audioHash(file: File) = sha1("audio|" + cleanName(file) + "|" + file.length())
+
+    private val audioLock = Any()
+
+    /**
+     * Brings audiobook spots in line with the cloud: newest wins. With [pull] false (used while playing) it only sends.
+     * Blocking; run on a background thread. Returns how many spots were pulled to this phone.
+     * Only books already uploaded to the cloud take part, and a failed read never causes a write.
+     */
+    fun syncAudioProgress(context: Context, pull: Boolean, durationMs: Map<String, Long> = emptyMap()): Int = synchronized(audioLock) {
+        val base = url(context); val token = key(context)
+        if (!base.startsWith("https://") || token.isBlank()) return 0
+        val remote = Remote(base, token)
+        val files = File(context.filesDir, "audio").listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("m4b", "mp3", "m4a") } ?: return 0
+        val inCloud = remote.list("m/").map { it.removePrefix("m/").removeSuffix(".json") }.toSet()
+        val byHash = files.associateBy { audioHash(it) }.filterKeys { it in inCloud }
+        if (byHash.isEmpty()) return 0
+        val local = byHash.mapValues { (h, f) -> AudioProgress.localSpot(context, f).let { it.copy(durationMs = durationMs[f.name] ?: 0L) } }
+        val state = JSONObject(remote.getStateStrict())
+        val m = AudioProgress.merge(state, local)
+        if (m.changed) retry { remote.putBytes("state.json", m.state.toString().toByteArray(), "application/json") }
+        var pulled = 0
+        if (pull) for ((h, spot) in m.pulls) { byHash[h]?.let { AudioProgress.applyPull(context, it, spot); pulled++ } }
+        pulled
+    }
 
     /**
      * Sends one audiobook to the cloud in 50 MB pieces (the Worker only accepts ~100 MB per request).

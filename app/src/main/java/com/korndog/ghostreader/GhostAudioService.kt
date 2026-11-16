@@ -14,13 +14,22 @@ class GhostAudioService : MediaSessionService() {
  private var mediaSession: MediaSession? = null
  private var player: ExoPlayer? = null
  private val handler = Handler(Looper.getMainLooper())
+ private var ticks = 0
+ private fun pushToCloud(filename: String, durationMs: Long) {
+  val ctx = applicationContext
+  Thread { runCatching { CloudSync.syncAudioProgress(ctx, pull = false, durationMs = if (durationMs > 0) mapOf(filename to durationMs) else emptyMap()) } }.start()
+ }
  private val saveProgress = object : Runnable {
   override fun run() {
    player?.let { p ->
     val uri = p.currentMediaItem?.localConfiguration?.uri
     if (uri != null && uri.scheme == "file" && p.currentPosition >= 0) {
      val filename = File(uri.path.orEmpty()).name
-     if (filename.isNotBlank()) getSharedPreferences("reading", MODE_PRIVATE).edit().putInt("audio_" + filename, p.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()).apply()
+     if (filename.isNotBlank()) {
+      AudioProgress.record(this@GhostAudioService, filename, p.currentPosition)
+      // While playing, send the spot to the cloud about every 30 seconds so the TV can pick it up.
+      if (p.isPlaying && ++ticks % 6 == 0) pushToCloud(filename, p.duration)
+     }
     }
    }
    handler.postDelayed(this, 5000)
@@ -48,7 +57,11 @@ class GhostAudioService : MediaSessionService() {
   handler.removeCallbacks(saveProgress)
   player?.let { p ->
    val uri = p.currentMediaItem?.localConfiguration?.uri
-   if (uri?.scheme == "file") getSharedPreferences("reading", MODE_PRIVATE).edit().putInt("audio_" + File(uri.path.orEmpty()).name, p.currentPosition.coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()).apply()
+   if (uri?.scheme == "file") {
+    val filename = File(uri.path.orEmpty()).name
+    AudioProgress.record(this, filename, p.currentPosition.coerceAtLeast(0))
+    pushToCloud(filename, p.duration)
+   }
   }
   mediaSession?.release()
   mediaSession = null

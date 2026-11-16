@@ -305,7 +305,10 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
     ComicReader(selectedComic!!, onClose = { selectedComic = null })
    } else if (selectedAudio != null) {
     val file = selectedAudio!!
-    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { prefs.edit().putInt("audio_" + file.name, it).apply() }, onClose = { selectedAudio = null })
+    AudioBookPlayer(file, prefs.getInt("audio_" + file.name, 0), onProgress = { AudioProgress.record(ctx, file.name, it.toLong()) }, onClose = {
+     selectedAudio = null
+     Thread { runCatching { CloudSync.syncAudioProgress(ctx, pull = false) } }.start()
+    })
    } else if (selected == null && showHome) {
     HomeSplash(onLibrary = { showHome = false; tab = 0 }, onAddBooks = { showHome = false; tab = 1 })
     BackHandler(enabled = false) {}
@@ -321,7 +324,14 @@ private fun GhostApp(incomingMagnet: String?, onMagnetConsumed: () -> Unit) {
        onOpenComic = { selectedComic = it },
        onDeleteComic = { file -> if(file.delete()) comics=scanComics(File(ctx.filesDir,"comics")) else error="Could not delete comic" },
        onOpenBook = { openBook(it) }, onDeleteBook = { deleteCandidate = it },
-       onOpenAudio = { selectedAudio = it }, onDeleteAudio = { deleteAudioCandidate = it },
+       onOpenAudio = { f ->
+        // Fetch the newest spot (from the TV) first, but never make the player wait more than 3 seconds for it.
+        Thread {
+         val t = Thread { runCatching { CloudSync.syncAudioProgress(ctx, pull = true) } }.also { it.start() }
+         t.join(3000)
+         uiHandler.post { selectedAudio = f }
+        }.start()
+       }, onDeleteAudio = { deleteAudioCandidate = it },
        onOpenPdf = { selectedPdf = it },
        onDeletePdf = { file -> if(file.delete()) pdfFiles=scanPdfs(File(ctx.filesDir,"pdfs")) else error="Could not delete PDF" }
       ) }
